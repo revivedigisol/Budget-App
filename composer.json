@@ -1,0 +1,11 @@
+{
+  "name": "enle/erp-budgeting",
+  "description": "WP ERP Budgeting module (PSR-4 namespaced)",
+  "type": "wordpress-plugin",
+  "autoload": {
+    "psr-4": {
+      "Enle\\ERP\\Budgeting\\": "includes/src/"
+    }
+  },
+  "require": {}
+}

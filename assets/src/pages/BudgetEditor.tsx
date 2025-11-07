@@ -1,0 +1,128 @@
+import { useState } from "react";
+import useSWR from "swr";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Button } from "../components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+
+interface BudgetFormData {
+  title: string;
+  fiscal_year: string;
+  description: string;
+  department_id: number;
+}
+
+const BudgetEditor = () => {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("budget");
+  const currentPage = (window as any).erpBudgetingSettings?.currentPage;
+  const isNewBudget =
+    currentPage === "erp-budgeting-new" || id === "new" || id === null;
+
+  const { data: budget, error } = useSWR<BudgetFormData>(
+    !isNewBudget ? `/wp-json/erp/v1/budgets/${id}` : null
+  );
+
+  const [formData, setFormData] = useState<BudgetFormData>({
+    title: "",
+    fiscal_year: new Date().getFullYear().toString(),
+    description: "",
+    department_id: 0,
+  });
+
+  if (!isNewBudget && error) return <div>Failed to load budget</div>;
+  if (!isNewBudget && !budget) return <div>Loading...</div>;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const endpoint = isNewBudget
+      ? "/wp-json/erp/v1/budgets"
+      : `/wp-json/erp/v1/budgets/${id}`;
+
+    try {
+      const response = await fetch(endpoint, {
+        method: isNewBudget ? "POST" : "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "X-WP-Nonce": (window as any).wpApiSettings.nonce,
+        },
+        body: JSON.stringify(formData),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to save budget");
+      }
+
+      // Redirect back to budgets admin page
+      window.location.href =
+        (window as any).erpBudgetingSettings?.adminUrl + "?page=erp-budgeting";
+    } catch (error) {
+      console.error("Error saving budget:", error);
+    }
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6">
+        {isNewBudget ? "Create New Budget" : "Edit Budget"}
+      </h2>
+
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <Label>Title</Label>
+          <Input
+            type="text"
+            value={formData.title}
+            onChange={(e) =>
+              setFormData({ ...formData, title: e.target.value })
+            }
+            required
+          />
+        </div>
+
+        <div>
+          <Label>Fiscal Year</Label>
+          <Input
+            type="text"
+            value={formData.fiscal_year}
+            onChange={(e) =>
+              setFormData({ ...formData, fiscal_year: e.target.value })
+            }
+            required
+          />
+        </div>
+
+        <div>
+          <Label>Description</Label>
+          <Textarea
+            value={formData.description}
+            onChange={(e) =>
+              setFormData({ ...formData, description: e.target.value })
+            }
+            className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2"
+            rows={4}
+          />
+        </div>
+
+        <div className="flex justify-end space-x-3">
+          <Button
+            type="button"
+            onClick={() =>
+              (window.location.href =
+                (window as any).erpBudgetingSettings?.adminUrl +
+                "?page=erp-budgeting")
+            }
+          >
+            Cancel
+          </Button>
+          <Button className="bg-blue-600! rounded-full" type="submit">
+            {isNewBudget ? "Create Budget" : "Save Changes"}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+export default BudgetEditor;
