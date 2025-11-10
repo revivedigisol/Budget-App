@@ -22,6 +22,7 @@ class BudgetRepository {
             'entity_type' => 'global',
             'entity_id' => null,
             'currency' => 'NGN',
+            'status' => 'draft',
             'start_date' => null,
             'end_date' => null,
             'created_by' => get_current_user_id(),
@@ -35,6 +36,7 @@ class BudgetRepository {
             'entity_type' => $insert['entity_type'],
             'entity_id' => $insert['entity_id'],
             'currency' => $insert['currency'],
+            'status' => $insert['status'],
             'start_date' => $insert['start_date'],
             'end_date' => $insert['end_date'],
             'created_by' => $insert['created_by'],
@@ -120,5 +122,13 @@ class BudgetRepository {
         }
 
         return $this->wpdb->get_results( $sql, ARRAY_A );
+    }
+
+    public function deleteLinesByBudget( $budget_id ) {
+        return (bool) $this->wpdb->delete(
+            "{$this->prefix}erp_budget_lines",
+            [ 'budget_id' => $budget_id ],
+            [ '%d' ]
+        );
     }
 }

@@ -36,25 +36,33 @@ class Menu {
             [ $this, 'render_page' ]
         );
 
-        // Create Budget (quick link)
+        // Extra routes used by the React app. Registering these slugs
+        // prevents WP from blocking direct access to ?page=erp-budgeting-new
+        // and ?page=erp-budgeting-reports (they reuse the same React root).
+        // Register helper route but allow administrators (manage_options) to access it
         add_submenu_page(
             $parent ? $parent : 'index.php',
             __( 'Create Budget', 'erp-budgeting' ),
             __( 'Create Budget', 'erp-budgeting' ),
-            $capability,
+            'manage_options',
             'erp-budgeting-new',
             [ $this, 'render_page' ]
         );
 
-        // Reports
+        // Register helper route but allow administrators (manage_options) to access it
         add_submenu_page(
             $parent ? $parent : 'index.php',
             __( 'Budget Reports', 'erp-budgeting' ),
             __( 'Budget Reports', 'erp-budgeting' ),
-            $capability,
+            'manage_options',
             'erp-budgeting-reports',
             [ $this, 'render_page' ]
         );
+
+        // Hide the helper submenu items via admin CSS so they remain routable but are not visible in the admin menu
+        add_action( 'admin_head', function() {
+            echo '<style>#adminmenu a[href*="page=erp-budgeting-new"], #adminmenu a[href*="page=erp-budgeting-reports"]{display:none!important;}</style>';
+        } );
 
         // Ensure our Assets class can detect the admin page hook by using the returned hook suffix
         if ( $hook ) {
@@ -66,8 +74,8 @@ class Menu {
     }
 
     public function render_page() {
-        // Capability check
-        if ( ! current_user_can( 'manage_erp_budgets' ) ) {
+        // Capability check: allow either the custom capability or administrators
+        if ( ! current_user_can( 'manage_erp_budgets' ) && ! current_user_can( 'manage_options' ) ) {
             wp_die( esc_html__( 'You do not have sufficient permissions to access this page.' ) );
         }
 

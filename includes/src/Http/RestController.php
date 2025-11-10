@@ -11,9 +11,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class RestController {
     private $service;
+    private $repo;
 
     public function __construct( BudgetService $service = null ) {
         $this->service = $service ?: new BudgetService();
+        $this->repo = new BudgetRepository();
         add_action( 'rest_api_init', [ $this, 'registerRoutes' ] );
     }
 
@@ -53,6 +55,26 @@ class RestController {
             'methods' => 'POST',
             'callback' => [ $this, 'manualReconcile' ],
             'permission_callback' => [ $this, 'permissionsCheck' ],
+        ] );
+
+        register_rest_route( 'erp/v1', '/budgets/(?P<id>\d+)', [
+            'methods' => 'PUT',
+            'callback' => [ $this, 'updateBudget' ],
+            'permission_callback' => [ $this, 'permissionsCheck' ],
+            'args' => [
+                'id' => [ 'validate_callback' => function( $param ) { return is_numeric( $param ); } ]
+            ],
+        ] );
+
+        register_rest_route( 'erp/v1', '/budgets/reports', [
+            'methods' => 'GET',
+            'callback' => [ $this, 'getBudgetReport' ],
+            'permission_callback' => [ $this, 'permissionsCheck' ],
+            'args' => [
+                'fiscal_year' => [ 'required' => true ],
+                'period' => [],
+                'department_id' => [ 'validate_callback' => function( $v ) { return is_numeric( $v ); } ],
+            ],
         ] );
     }
 
@@ -109,5 +131,34 @@ class RestController {
         $reconciler->run();
 
         return rest_ensure_response( [ 'status' => 'ok' ] );
+    }
+
+    public function updateBudget( \WP_REST_Request $request ) {
+        $id = (int) $request['id'];
+        $payload = $request->get_json_params();
+
+        try {
+            $updated = $this->service->updateBudget( $id, $payload );
+            if ( ! $updated ) {
+                return new \WP_Error( 'not_found', 'Budget not found', [ 'status' => 404 ] );
+            }
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'invalid', $e->getMessage(), [ 'status' => 400 ] );
+        }
+
+        return rest_ensure_response( [ 'id' => $id ] );
+    }
+
+    public function getBudgetReport( \WP_REST_Request $request ) {
+        $fiscal_year = $request->get_param( 'fiscal_year' );
+        $period = $request->get_param( 'period' );
+        $department_id = $request->get_param( 'department_id' ) ? (int) $request->get_param( 'department_id' ) : null;
+
+        try {
+            $report = $this->service->getReport( $fiscal_year, $period, $department_id );
+            return rest_ensure_response( $report );
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'report_error', $e->getMessage(), [ 'status' => 500 ] );
+        }
     }
 }

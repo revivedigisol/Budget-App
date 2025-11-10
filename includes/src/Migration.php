@@ -21,6 +21,7 @@ class Migration {
             "  entity_type VARCHAR(32) DEFAULT 'global',\n" .
             "  entity_id BIGINT(20) DEFAULT NULL,\n" .
             "  currency VARCHAR(12) DEFAULT 'NGN',\n" .
+            "  status ENUM('draft', 'active', 'closed') DEFAULT 'draft',\n" .
             "  start_date DATE NOT NULL,\n" .
             "  end_date DATE NOT NULL,\n" .
             "  created_by BIGINT(20) DEFAULT NULL,\n" .

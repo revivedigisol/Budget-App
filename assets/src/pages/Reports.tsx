@@ -14,6 +14,8 @@ interface BudgetReport {
   actual_amount: number
   variance: number
   variance_percentage: number
+  currency: string
+  currency_symbol: string
 }
 
 const Reports = () => {
@@ -22,16 +24,28 @@ const Reports = () => {
   })
 
   // Initialize with empty report data
-  const emptyReport: BudgetReport = {
-    budget_amount: 0,
-    actual_amount: 0,
-    variance: 0,
-    variance_percentage: 0
-  };
+ const emptyReport: BudgetReport = {
+  budget_amount: 0,
+  actual_amount: 0,
+  variance: 0,
+  variance_percentage: 0,
+  currency: 'USD',
+  currency_symbol: '$'
+};
 
   const { data: report, error } = useSWR<BudgetReport>(
-    `/wp-json/erp/v1/budgets/reports?${new URLSearchParams(filters as any)}`,
-    { fallbackData: emptyReport }
+    `/wp-json/erp/v1/budgets/reports?${new URLSearchParams(
+      Object.entries(filters).reduce((acc, [key, value]) => {
+        if (value !== undefined) {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {} as Record<string, string>)
+    )}`,
+    { 
+      fallbackData: emptyReport,
+      onError: (err) => console.error('Error fetching report:', err)
+    }
   );
 
   return (
@@ -71,15 +85,15 @@ const Reports = () => {
             <div className="grid grid-cols-4 gap-4 mt-8">
               <div className="bg-blue-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-blue-800">Budget Amount</h3>
-                <p className="mt-2 text-2xl font-semibold text-blue-900">${report?.budget_amount?.toLocaleString() ?? '0'}</p>
+                <p className="mt-2 text-2xl font-semibold text-blue-900">{report?.currency_symbol}{report?.budget_amount?.toLocaleString() ?? '0'}</p>
               </div>
               <div className="bg-green-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-green-800">Actual Amount</h3>
-                <p className="mt-2 text-2xl font-semibold text-green-900">${report?.actual_amount?.toLocaleString() ?? '0'}</p>
+                <p className="mt-2 text-2xl font-semibold text-green-900">{report?.currency_symbol}{report?.actual_amount?.toLocaleString() ?? '0'}</p>
               </div>
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-yellow-800">Variance</h3>
-                <p className="mt-2 text-2xl font-semibold text-yellow-900">${report?.variance?.toLocaleString() ?? '0'}</p>
+                <p className="mt-2 text-2xl font-semibold text-yellow-900">{report?.currency_symbol}{report?.variance?.toLocaleString() ?? '0'}</p>
               </div>
               <div className="bg-purple-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-purple-800">Variance %</h3>

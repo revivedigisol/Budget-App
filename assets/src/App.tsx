@@ -16,11 +16,19 @@ function App() {
   // Get initial route from WordPress
   const settings = (window as any).erpBudgetingSettings || {};
   const currentPage = settings.currentPage || 'erp-budgeting';
+  // If a `budget` query param is present we should render the editor for that
+  // budget. WordPress sets `currentPage` based on the admin menu slug, but
+  // editing a budget uses the same `erp-budgeting` slug with a `budget` query
+  // param. Detect that and render `BudgetEditor` when appropriate.
+  const urlParams = new URLSearchParams(window.location.search)
+  const urlBudget = urlParams.get('budget')
   
   // Render the appropriate component based on the current WordPress admin page
   const PageComponent = () => {
     switch (currentPage) {
       case 'erp-budgeting':
+        // If a specific budget id was passed in the URL, show the editor
+        if (urlBudget) return <BudgetEditor />
         return <BudgetList />;
       case 'erp-budgeting-new':
         return <BudgetEditor />;
