@@ -9,6 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Menu {
     public function __construct() {
         add_action( 'admin_menu', [ $this, 'register_menus' ], 50 );
+        // Ensure roles have the required capability on admin init
+        add_action( 'admin_init', [ $this, 'ensure_budget_roles' ] );
     }
 
     public function register_menus() {
@@ -39,22 +41,21 @@ class Menu {
         // Extra routes used by the React app. Registering these slugs
         // prevents WP from blocking direct access to ?page=erp-budgeting-new
         // and ?page=erp-budgeting-reports (they reuse the same React root).
-        // Register helper route but allow administrators (manage_options) to access it
+        // Register helper routes using the plugin capability so they are routable
         add_submenu_page(
             $parent ? $parent : 'index.php',
             __( 'Create Budget', 'erp-budgeting' ),
             __( 'Create Budget', 'erp-budgeting' ),
-            'manage_options',
+            $capability,
             'erp-budgeting-new',
             [ $this, 'render_page' ]
         );
 
-        // Register helper route but allow administrators (manage_options) to access it
         add_submenu_page(
             $parent ? $parent : 'index.php',
             __( 'Budget Reports', 'erp-budgeting' ),
             __( 'Budget Reports', 'erp-budgeting' ),
-            'manage_options',
+            $capability,
             'erp-budgeting-reports',
             [ $this, 'render_page' ]
         );
@@ -73,9 +74,35 @@ class Menu {
         }
     }
 
+    /**
+     * Ensure the roles we want to allow have the plugin capability.
+     * Grants 'manage_erp_budgets' to Administrator, optional 'admin' role if present,
+     * and to WP ERP Accounting Manager role (erp_ac_manager) if defined.
+     */
+    public function ensure_budget_roles() {
+        // Roles to grant capability to
+        $roles = [ 'administrator', 'admin' ];
+
+        foreach ( $roles as $r ) {
+            $role = get_role( $r );
+            if ( $role && ! $role->has_cap( 'manage_erp_budgets' ) ) {
+                $role->add_cap( 'manage_erp_budgets' );
+            }
+        }
+
+        // If WP ERP accounting manager role exists, grant capability
+        if ( function_exists( 'erp_ac_get_manager_role' ) ) {
+            $ac_role_key = erp_ac_get_manager_role(); // typically 'erp_ac_manager'
+            $role = get_role( $ac_role_key );
+            if ( $role && ! $role->has_cap( 'manage_erp_budgets' ) ) {
+                $role->add_cap( 'manage_erp_budgets' );
+            }
+        }
+    }
+
     public function render_page() {
-        // Capability check: allow either the custom capability or administrators
-        if ( ! current_user_can( 'manage_erp_budgets' ) && ! current_user_can( 'manage_options' ) ) {
+        // Capability check: only users with the plugin capability can access
+        if ( ! current_user_can( 'manage_erp_budgets' ) ) {
             wp_die( esc_html__( 'You do not have sufficient permissions to access this page.' ) );
         }
 
