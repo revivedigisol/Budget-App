@@ -71,6 +71,32 @@ class Assets {
                 [],
                 filemtime($dist_path . '/' . $css_name)
             );
+            // Add a small inline override to prevent other admin plugins' CSS
+            // from forcing a constrained height on our React root. This keeps
+            // the rules scoped and minimal while using !important where needed
+            // to override aggressive admin CSS from other plugins.
+            $inline = "
+                /* Ensure our app root always expands to a sensible height */
+                .wrap #erp-budgeting-root, #erp-budgeting-root {
+                    height: auto !important;
+                    min-height: calc(100vh - 140px) !important;
+                    max-height: none !important;
+                    display: block !important;
+                }
+
+                /* Prevent inner panels from inheriting a small fixed height */
+                .wrap #erp-budgeting-root * {
+                    height: auto !important;
+                    max-height: none !important;
+                }
+
+                /* Slightly reduce min-height on small screens to avoid overflow */
+                @media (max-width: 600px) {
+                    .wrap #erp-budgeting-root { min-height: 0 !important; }
+                }
+            ";
+
+            wp_add_inline_style( 'erp-budgeting-admin', $inline );
         }
 
         // Add nonce for REST API and base URL for router
