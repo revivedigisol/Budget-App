@@ -80,14 +80,12 @@ class Assets {
                 .wrap #erp-budgeting-root, #erp-budgeting-root {
                     height: auto !important;
                     min-height: calc(100vh - 140px) !important;
-                    max-height: none !important;
                     display: block !important;
                 }
 
                 /* Prevent inner panels from inheriting a small fixed height */
                 .wrap #erp-budgeting-root * {
                     height: auto !important;
-                    max-height: none !important;
                 }
 
                 /* Slightly reduce min-height on small screens to avoid overflow */
