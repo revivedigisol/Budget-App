@@ -182,4 +182,7 @@ button:focus-visible {
   body {
     @apply bg-background text-foreground;
   }
+  .my-box {
+    max-height: calc(100vh - 400px) !important;
+  }
 }

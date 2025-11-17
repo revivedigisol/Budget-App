@@ -257,8 +257,7 @@ const BudgetEditor = () => {
           <Label>Chart of Accounts — Budget Amounts</Label>
           <div className="mt-2 border rounded-lg shadow-sm">
             <div
-              className="overflow-y-auto"
-              style={{ maxHeight: "calc(100vh - 400px)" }}
+              className="overflow-y-auto my-box"
             >
               <table className="w-full divide-y">
                 <colgroup>
