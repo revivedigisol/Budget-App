@@ -3,7 +3,7 @@
  * Plugin Name: WP ERP — Budgeting
  * Description: Budgeting & Budget Performance module for WP ERP (Accounting). Requires WP ERP to be installed and active.
  * Version: 0.1.0
- * Author: Plugin Scaffold
+ * Author: Enle
  * Text Domain: erp-budgeting
  */
 
