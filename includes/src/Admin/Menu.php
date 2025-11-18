@@ -11,6 +11,8 @@ class Menu {
         add_action( 'admin_menu', [ $this, 'register_menus' ], 50 );
         // Ensure roles have the required capability on admin init
         add_action( 'admin_init', [ $this, 'ensure_budget_roles' ] );
+        // Handle cashbook save from React (admin-post)
+        add_action( 'admin_post_erp_budgeting_save_cashbook', [ $this, 'handle_cashbook_save' ] );
     }
 
     public function register_menus() {
@@ -57,6 +59,16 @@ class Menu {
             __( 'Budget Reports', 'erp-budgeting' ),
             $capability,
             'erp-budgeting-reports',
+            [ $this, 'render_page' ]
+        );
+
+        // Cash Book page - visible submenu that uses the same React root
+        add_submenu_page(
+            $parent ? $parent : 'index.php',
+            __( 'Cash Book', 'erp-budgeting' ),
+            __( 'Cash Book', 'erp-budgeting' ),
+            $capability,
+            'erp-budgeting-cashbook',
             [ $this, 'render_page' ]
         );
 
@@ -111,5 +123,39 @@ class Menu {
         // Root for React app
         echo '<div id="erp-budgeting-root"></div>';
         echo '</div>';
+    }
+
+    /**
+     * Render a simple Cash Book page with a fillable table.
+     * This is a lightweight PHP-rendered page (not the React root) so users
+     * can quickly enter cashbook lines similar to the provided mockup image.
+     */
+    public function handle_cashbook_save() {
+        // Accept JSON or form-encoded POST to save cashbook rows.
+        if ( ! current_user_can( 'manage_erp_budgets' ) ) {
+            wp_send_json_error( [ 'message' => 'Insufficient permissions' ], 403 );
+        }
+
+        // Read raw JSON body if present
+        $raw = file_get_contents( 'php://input' );
+        $data = json_decode( $raw, true );
+
+        if ( empty( $data ) ) {
+            // Fallback to POST data
+            $data = $_POST;
+        }
+
+        $nonce = $data['nonce'] ?? $data['erp_budgeting_cashbook_nonce'] ?? $data['_wpnonce'] ?? '';
+        if ( ! wp_verify_nonce( $nonce, 'erp_budgeting_cashbook_save' ) ) {
+            wp_send_json_error( [ 'message' => 'Invalid nonce' ], 403 );
+        }
+
+        $rows = $data['rows'] ?? $data['cashbook_rows'] ?? [];
+
+        // Basic persistence: store submitted rows as an option for now.
+        // You can replace this with a custom table or other storage later.
+        update_option( 'erp_budgeting_cashbook_last', $rows );
+
+        wp_send_json_success( [ 'message' => 'Saved', 'count' => is_array( $rows ) ? count( $rows ) : 0 ] );
     }
 }

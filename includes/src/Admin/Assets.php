@@ -111,14 +111,22 @@ class Assets {
             'erp-budgeting' => '/',
             'erp-budgeting-new' => '/budget/new',
             'erp-budgeting-reports' => '/reports',
+            'erp-budgeting-cashbook' => '/cashbook',
             default => '/'
         };
 
         // Add settings for the React app
+        // Retrieve any previously saved cashbook rows so the React app can
+        // initialize with the existing data.
+        $saved_cashbook = get_option( 'erp_budgeting_cashbook_last', [] );
+
         wp_localize_script('erp-budgeting-admin', 'erpBudgetingSettings', [
             'adminUrl' => admin_url('admin.php'),
+            'adminPostUrl' => admin_url('admin-post.php'),
             'currentPage' => $page,
-            'initialRoute' => $route
+            'initialRoute' => $route,
+            'cashbookNonce' => wp_create_nonce('erp_budgeting_cashbook_save'),
+            'cashbookSaved' => $saved_cashbook
         ]);
 
         // Set up translations
