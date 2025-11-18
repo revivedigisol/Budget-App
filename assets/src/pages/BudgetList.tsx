@@ -184,7 +184,7 @@ const BudgetList = () => {
               <option key={n} value={n}>{n}</option>
             ))}
           </select>
-          <Button variant="outline" className='text-white' onClick={exportCSV}>Export CSV</Button>
+          <Button variant="outline" className='text-white hover:text-gray-100' onClick={exportCSV}>Export CSV</Button>
         </div>
       </div>
 
