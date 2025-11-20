@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 
 type Transaction = {
   id: number | string
+  rawId?: number | string
+  route?: string
   date: string // ISO date
   particulars: string
   voucher?: string
@@ -11,7 +13,7 @@ type Transaction = {
 }
 
 export default function CashBook() {
-  const settings = (window as any).erpBudgetingSettings || {}
+  const settings = ((window as unknown) as { erpBudgetingSettings?: Record<string, unknown> }).erpBudgetingSettings || {}
 
   const today = new Date()
   const toIsoDate = (d: Date) => d.toISOString().slice(0, 10)
@@ -42,8 +44,8 @@ export default function CashBook() {
       if (json.success) {
         const data = Array.isArray(json.data) ? json.data : []
         const parsed: Transaction[] = data.map((t: unknown) => {
-          const obj = (t as Record<string, any>) || {}
-          const get = (k: string) => obj[k]
+          const obj = (t as Record<string, unknown>) || {}
+          const get = (k: string) => obj[k as keyof typeof obj]
 
           const rawType = String(get('type') ?? '').toLowerCase()
           const isPayment = rawType === 'payment' || get('payment_amount') !== undefined || get('pay_cus_name') !== undefined || get('pay_status') !== undefined
@@ -70,8 +72,13 @@ export default function CashBook() {
           const particulars = String(get('particulars') ?? get('pay_cus_name') ?? get('expense_people_name') ?? get('vendor_name') ?? get('title') ?? '')
           const voucher = String(get('voucher') ?? get('status_code') ?? get('expense_status') ?? get('pay_status') ?? get('status') ?? '')
 
+          const rawId = (get('id') ?? get('ID') ?? get('transaction_id') ?? get('vendor_id') ?? Math.random()) as number | string
+          const route = isExpense ? 'expenses' : isPayment ? 'payments' : isPurchase ? 'purchases' : (rawType ? `${rawType}s` : 'expenses')
+
           return {
-            id: (get('id') ?? get('ID') ?? Math.random()) as number | string,
+            id: rawId,
+            rawId,
+            route,
             date: rawDate.slice(0, 10),
             particulars,
             voucher,
@@ -115,6 +122,7 @@ export default function CashBook() {
   }, { debit: 0, credit: 0 }), [transactions])
 
   const fmt = (v: number) => currencySymbol + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const siteBase = String(settings.siteUrl ?? settings.site_url ?? window.location?.origin ?? window.location.origin).replace(/\/$/, '')
 
   return (
     <div className="space-y-6">
@@ -141,18 +149,19 @@ export default function CashBook() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-gray-100">
-                <th className="border px-3 py-2">Date</th>
-                <th className="border px-3 py-2">Particulars</th>
-                <th className="border px-3 py-2">Voucher</th>
-                <th className="border px-3 py-2 text-right">Debit</th>
-                <th className="border px-3 py-2 text-right">Credit</th>
-              </tr>
+                <tr className="bg-gray-100">
+                  <th className="border px-3 py-2">Date</th>
+                  <th className="border px-3 py-2">ID</th>
+                  <th className="border px-3 py-2">Particulars</th>
+                  <th className="border px-3 py-2">Voucher</th>
+                  <th className="border px-3 py-2 text-right">Debit</th>
+                  <th className="border px-3 py-2 text-right">Credit</th>
+                </tr>
             </thead>
             <tbody>
               {grouped.length === 0 && (
                 <tr>
-                  <td className="p-4" colSpan={5}>No completed transactions for this period.</td>
+                  <td className="p-4" colSpan={6}>No completed transactions for this period.</td>
                 </tr>
               )}
 
@@ -164,17 +173,22 @@ export default function CashBook() {
                     <td className="border px-3 py-2 align-top" style={{ verticalAlign: 'top' }}>
                       <div className="font-medium">{date}</div>
                     </td>
-                    <td className="border px-3 py-2" colSpan={3}>
+                    <td className="border px-3 py-2" colSpan={4}>
                       <table className="w-full">
                         <tbody>
-                          {items.map(it => (
+                          {items.map(it => {
+                            const link = `${siteBase}/wp-admin/admin.php?page=erp-accounting#/${it.route}/${it.rawId}`
+                            return (
                             <tr key={String(it.id)} className="bg-white">
+                              <td className="px-3 py-1">
+                                <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{String(it.rawId ?? it.id)}</a>
+                              </td>
                               <td className="px-3 py-1">{it.particulars}</td>
                               <td className="px-3 py-1">{it.voucher || '-'}</td>
                               <td className="px-3 py-1 text-right">{it.debit ? fmt(it.debit) : ''}</td>
                               <td className="px-3 py-1 text-right">{it.credit ? fmt(it.credit) : ''}</td>
                             </tr>
-                          ))}
+                            )})}
                         </tbody>
                       </table>
                     </td>
@@ -186,7 +200,7 @@ export default function CashBook() {
             <tfoot>
               <tr className="bg-gray-50 font-semibold">
                 <td className="border px-3 py-2">Total</td>
-                <td className="border px-3 py-2" colSpan={3}></td>
+                <td className="border px-3 py-2" colSpan={4}></td>
                 <td className="border px-3 py-2 text-right">{fmt(overall.debit)} / {fmt(overall.credit)}</td>
               </tr>
             </tfoot>
