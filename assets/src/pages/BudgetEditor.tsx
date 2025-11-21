@@ -81,6 +81,7 @@ const BudgetEditor = () => {
     return out
   }, [accounts])
 
+
   const formatDate = (d: Date) => d.toISOString().slice(0, 10);
 
   const startOfYear = formatDate(new Date(new Date().getFullYear(), 0, 1));
@@ -94,6 +95,30 @@ const BudgetEditor = () => {
     department_id: 0,
     accounts_amounts: {},
   });
+
+  // Currency formatting (use settings if available)
+  const _settings = ((window as unknown) as { erpBudgetingSettings?: Record<string, unknown> }).erpBudgetingSettings || {}
+  const currencySymbol = String(_settings.currencySymbol ?? '₦')
+  const formatCurrency = (v: number) => currencySymbol + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // Compute subtotal for each chart group based on form values
+  const chartTotals = useMemo(() => {
+    const totals: Record<string, number> = {}
+    const acctAmounts = formData.accounts_amounts || {}
+    for (const [chartId, acctList] of Object.entries(accountsByChart)) {
+      let sum = 0
+      for (const acct of acctList) {
+        const raw = acctAmounts[String(acct.id)]
+        const n = raw != null && raw !== '' ? parseFloat(String(raw)) : 0
+        if (!isNaN(n)) sum += n
+      }
+      totals[chartId] = sum
+    }
+    return totals
+  }, [accountsByChart, formData])
+
+  // Grand total across all chart groups
+  const grandTotal = useMemo(() => Object.values(chartTotals).reduce((s, v) => s + (v || 0), 0), [chartTotals])
 
   useEffect(() => {
     if (!budget) return;
@@ -254,7 +279,10 @@ const BudgetEditor = () => {
 
         {/* Accounts table: one budget value per account */}
         <div className="mt-6">
-          <Label>Chart of Accounts — Budget Amounts</Label>
+          <div className="flex items-center justify-between">
+            <Label>Chart of Accounts — Budget Amounts</Label>
+            <div className="text-sm font-semibold text-gray-800">Total Amount of Allocated budget: <span className="ml-2">{formatCurrency(grandTotal)}</span></div>
+          </div>
           <div className="mt-2 border rounded-lg shadow-sm">
             <div
               className="overflow-y-auto my-box"
@@ -282,8 +310,11 @@ const BudgetEditor = () => {
                   {Object.entries(accountsByChart).map(([chartId, acctList]) => (
                     <React.Fragment key={chartId}>
                       <tr className="bg-gray-100">
-                        <td colSpan={3} className="px-4 py-2 text-sm font-semibold text-gray-800">
+                        <td colSpan={2} className="px-4 py-2 text-sm font-semibold text-gray-800">
                           {chartTypes.find((ct) => ct.id === chartId)?.label ?? `Chart ${chartId}`}
+                        </td>
+                        <td className="px-4 py-2 text-right text-sm font-semibold text-gray-800">
+                          {formatCurrency(chartTotals[chartId] ?? 0)}
                         </td>
                       </tr>
 
