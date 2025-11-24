@@ -20,8 +20,9 @@ class Migration {
             "  description TEXT,\n" .
             "  entity_type VARCHAR(32) DEFAULT 'global',\n" .
             "  entity_id BIGINT(20) DEFAULT NULL,\n" .
+            "  fiscal_year VARCHAR(16) DEFAULT NULL,\n" .
             "  currency VARCHAR(12) DEFAULT 'NGN',\n" .
-            "  status ENUM('draft', 'active', 'closed') DEFAULT 'draft',\n" .
+            "  status ENUM('draft', 'active', 'closed','assigned') DEFAULT 'draft',\n" .
             "  start_date DATE NOT NULL,\n" .
             "  end_date DATE NOT NULL,\n" .
             "  created_by BIGINT(20) DEFAULT NULL,\n" .
@@ -95,6 +96,13 @@ class Migration {
 
         foreach ( $tables as $sql ) {
             dbDelta( $sql );
+        }
+
+        // Ensure existing installs get the fiscal_year column if it was added later
+        $budgets_table = $prefix . 'erp_budgets';
+        $col = $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$budgets_table} LIKE %s", 'fiscal_year' ) );
+        if ( ! $col ) {
+            $wpdb->query( "ALTER TABLE {$budgets_table} ADD COLUMN fiscal_year VARCHAR(16) DEFAULT NULL" );
         }
 
         if ( ! get_option( 'erp_budget_db_version' ) ) {

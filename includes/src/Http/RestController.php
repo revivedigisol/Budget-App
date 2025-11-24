@@ -4,6 +4,7 @@ namespace Enle\ERP\Budgeting\Http;
 use Enle\ERP\Budgeting\Service\BudgetService;
 use Enle\ERP\Budgeting\Repository\BudgetRepository;
 use Enle\ERP\Budgeting\Cron\Reconciler;
+use Enle\ERP\Budgeting\Migration;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -57,9 +58,27 @@ class RestController {
             'permission_callback' => [ $this, 'permissionsCheck' ],
         ] );
 
+        // Temporary admin-only endpoint to trigger DB migrations when WP-CLI isn't available.
+        // Remove this route after running migrations.
+        register_rest_route( 'erp/v1', '/internal/run-migrations', [
+            'methods' => 'POST',
+            'callback' => [ $this, 'runMigrations' ],
+            'permission_callback' => [ $this, 'permissionsCheck' ],
+        ] );
+
         register_rest_route( 'erp/v1', '/budgets/(?P<id>\d+)', [
             'methods' => 'PUT',
             'callback' => [ $this, 'updateBudget' ],
+            'permission_callback' => [ $this, 'permissionsCheck' ],
+            'args' => [
+                'id' => [ 'validate_callback' => function( $param ) { return is_numeric( $param ); } ]
+            ],
+        ] );
+
+        // Delete budget
+        register_rest_route( 'erp/v1', '/budgets/(?P<id>\d+)', [
+            'methods' => 'DELETE',
+            'callback' => [ $this, 'deleteBudget' ],
             'permission_callback' => [ $this, 'permissionsCheck' ],
             'args' => [
                 'id' => [ 'validate_callback' => function( $param ) { return is_numeric( $param ); } ]
@@ -159,6 +178,33 @@ class RestController {
             return rest_ensure_response( $report );
         } catch ( \Exception $e ) {
             return new \WP_Error( 'report_error', $e->getMessage(), [ 'status' => 500 ] );
+        }
+    }
+
+    /**
+     * Temporary admin endpoint to run DB migrations when WP-CLI isn't available.
+     * Remove after use.
+     */
+    public function runMigrations( \WP_REST_Request $request ) {
+        try {
+            Migration::createTables();
+            return rest_ensure_response( [ 'status' => 'ok', 'message' => 'Migrations run' ] );
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'migration_error', $e->getMessage(), [ 'status' => 500 ] );
+        }
+    }
+
+    public function deleteBudget( \WP_REST_Request $request ) {
+        $id = (int) $request['id'];
+
+        try {
+            $deleted = $this->repo->deleteBudget( $id );
+            if ( ! $deleted ) {
+                return new \WP_Error( 'not_found', 'Budget not found or could not be deleted', [ 'status' => 404 ] );
+            }
+            return rest_ensure_response( [ 'deleted' => true, 'id' => $id ] );
+        } catch ( \Exception $e ) {
+            return new \WP_Error( 'delete_error', $e->getMessage(), [ 'status' => 500 ] );
         }
     }
 }

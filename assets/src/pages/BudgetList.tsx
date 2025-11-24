@@ -63,8 +63,8 @@ const BudgetList = () => {
         va = a.status ?? ''
         vb = b.status ?? ''
       } else if (sortBy === 'fiscal') {
-        va = a.fiscal_year ?? a.start_date ?? ''
-        vb = b.fiscal_year ?? b.start_date ?? ''
+        va = a.fiscal_year ?? ''
+        vb = b.fiscal_year ?? ''
       }
 
       return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
@@ -105,7 +105,7 @@ const BudgetList = () => {
       id: b.id,
       title: b.title,
       status: b.status ?? '',
-      fiscal: b.fiscal_year ?? `${b.start_date ?? ''} - ${b.end_date ?? ''}`,
+      fiscal:b.fiscal_year ?? '' ,
     }))
 
     const header = Object.keys(rows[0] || {}).join(',')
@@ -237,7 +237,12 @@ const BudgetList = () => {
           <tbody className="bg-white divide-y">
             {paginatedBudgets.length ? (
               paginatedBudgets.map(budget => {
-                const status = budget.status ?? 'unknown'
+                // If a budget does not have a fiscal_year, treat statuses as "Draft" or "Assigned"
+                // Draft: budget.status === 'draft' (no fiscal year yet)
+                // Assigned: any other status but no fiscal_year
+                const hasFiscal = !!budget.fiscal_year
+                const rawStatus = budget.status ?? 'unknown'
+                const status = hasFiscal ? rawStatus : (rawStatus === 'draft' ? 'draft' : 'assigned')
                 const statusLabel = (typeof status === 'string' && status.length > 0)
                   ? status.charAt(0).toUpperCase() + status.slice(1)
                   : 'Unknown'
@@ -254,6 +259,7 @@ const BudgetList = () => {
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         status === 'active' ? 'bg-green-100 text-green-800' :
                         status === 'draft' ? 'bg-yellow-100 text-yellow-800' :
+                        status === 'assigned' ? 'bg-blue-100 text-blue-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
                         {statusLabel}

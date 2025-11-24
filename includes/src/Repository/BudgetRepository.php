@@ -22,6 +22,7 @@ class BudgetRepository {
             'entity_type' => 'global',
             'entity_id' => null,
             'currency' => 'NGN',
+            'fiscal_year' => null,
             'status' => 'draft',
             'start_date' => null,
             'end_date' => null,
@@ -35,18 +36,45 @@ class BudgetRepository {
             'description' => $insert['description'],
             'entity_type' => $insert['entity_type'],
             'entity_id' => $insert['entity_id'],
+            'fiscal_year' => $insert['fiscal_year'],
             'currency' => $insert['currency'],
             'status' => $insert['status'],
             'start_date' => $insert['start_date'],
             'end_date' => $insert['end_date'],
             'created_by' => $insert['created_by'],
-        ], [ '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%d' ] );
+        ], [ '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%d' ] );
 
-        return $this->wpdb->insert_id;
+        $insert_id = (int) $this->wpdb->insert_id;
+
+        // Debug: if insert fails or produces insert_id 0, dump WPDB error and query
+        if ( $insert_id === 0 || ! empty( $this->wpdb->last_error ) ) {
+            $debug = [
+                'insert_id'   => $insert_id,
+                'last_error'  => $this->wpdb->last_error,
+                'last_query'  => isset( $this->wpdb->last_query ) ? $this->wpdb->last_query : null,
+                'data'        => $insert,
+            ];
+            print_r( $debug );
+            die();
+
+            // Log to PHP error log for background inspection
+            error_log( 'ERP Budgeting insertBudget debug: ' . print_r( $debug, true ) );
+
+            // Stop execution with readable debug output (temporary for debugging)
+            if ( function_exists( 'wp_die' ) ) {
+                wp_die( '<pre>' . esc_html( print_r( $debug, true ) ) . '</pre>' );
+            } else {
+                echo '<pre>' . htmlspecialchars( print_r( $debug, true ) ) . '</pre>';
+                die();
+            }
+        }
+
+        return $insert_id;
     }
 
     public function updateBudget( $id, array $data ) {
         $this->wpdb->update( "{$this->prefix}erp_budgets", $data, [ 'id' => $id ] );
+        
         return (bool) $this->wpdb->rows_affected;
     }
 
@@ -118,7 +146,13 @@ class BudgetRepository {
 
         if ( ! empty( $where ) ) {
             $sql .= ' WHERE ' . implode( ' AND ', $where );
-            return $this->wpdb->get_results( $this->wpdb->prepare( $sql, $params ), ARRAY_A );
+            // Prepare the SQL with parameter unpacking to avoid passing the params array as a single argument
+            if ( ! empty( $params ) ) {
+                $prepared = $this->wpdb->prepare( $sql, ...$params );
+            } else {
+                $prepared = $sql;
+            }
+            return $this->wpdb->get_results( $prepared, ARRAY_A );
         }
 
         return $this->wpdb->get_results( $sql, ARRAY_A );
