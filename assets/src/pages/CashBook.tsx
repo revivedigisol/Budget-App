@@ -70,7 +70,7 @@ export default function CashBook() {
           }
 
           const particulars = String(get('particulars') ?? get('pay_cus_name') ?? get('expense_people_name') ?? get('vendor_name') ?? get('title') ?? '')
-          const voucher = String(get('voucher') ?? get('status_code') ?? get('expense_status') ?? get('pay_status') ?? get('status') ?? '')
+          const voucher = String(get('type') ?? get('type') ?? get('type') ?? get('type') ?? get('type') ?? '')
 
           const rawId = (get('id') ?? get('ID') ?? get('transaction_id') ?? get('vendor_id') ?? Math.random()) as number | string
           const route = isExpense ? 'expenses' : isPayment ? 'payments' : isPurchase ? 'purchases' : (rawType ? `${rawType}s` : 'expenses')
@@ -153,7 +153,7 @@ export default function CashBook() {
                   <th className="border px-3 py-2">Date</th>
                   <th className="border px-3 py-2">ID</th>
                   <th className="border px-3 py-2">Particulars</th>
-                  <th className="border px-3 py-2">Voucher</th>
+                  <th className="border px-3 py-2">Type</th>
                   <th className="border px-3 py-2 text-right">Debit</th>
                   <th className="border px-3 py-2 text-right">Credit</th>
                 </tr>
@@ -166,34 +166,31 @@ export default function CashBook() {
               )}
 
               {grouped.map(([date, items]) => {
-                const dayDebit = items.reduce((s, it) => s + (it.debit || 0), 0)
-                const dayCredit = items.reduce((s, it) => s + (it.credit || 0), 0)
+                // day totals removed; keep variables only if needed later
                 return (
-                  <tr key={date} className="align-top">
-                    <td className="border px-3 py-2 align-top" style={{ verticalAlign: 'top' }}>
-                      <div className="font-medium">{date}</div>
-                    </td>
-                    <td className="border px-3 py-2" colSpan={4}>
-                      <table className="w-full">
-                        <tbody>
-                          {items.map(it => {
-                            const link = `${siteBase}/wp-admin/admin.php?page=erp-accounting#/${it.route}/${it.rawId}`
-                            return (
-                            <tr key={String(it.id)} className="bg-white">
-                              <td className="px-3 py-1">
-                                <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{String(it.rawId ?? it.id)}</a>
-                              </td>
-                              <td className="px-3 py-1">{it.particulars}</td>
-                              <td className="px-3 py-1">{it.voucher || '-'}</td>
-                              <td className="px-3 py-1 text-right">{it.debit ? fmt(it.debit) : ''}</td>
-                              <td className="px-3 py-1 text-right">{it.credit ? fmt(it.credit) : ''}</td>
-                            </tr>
-                            )})}
-                        </tbody>
-                      </table>
-                    </td>
-                    <td className="border px-3 py-2 text-right font-semibold">{fmt(dayDebit)} / {fmt(dayCredit)}</td>
-                  </tr>
+                  <>
+                    {items.map((it, idx) => {
+                      const link = `${siteBase}/wp-admin/admin.php?page=erp-accounting#/${it.route}/${it.rawId}`
+                      return (
+                        <tr key={`${date}-${String(it.id)}-${idx}`}>
+                          {/* Date cell only shown on first row for the group */}
+                          {idx === 0 ? (
+                            <td className="border px-3 py-2 align-top" rowSpan={items.length} style={{ verticalAlign: 'top' }}>
+                              <div className="font-medium">{date}</div>
+                            </td>
+                          ) : null}
+                          <td className="border px-3 py-2">
+                            <a href={link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{String(it.rawId ?? it.id)}</a>
+                          </td>
+                          <td className="border px-3 py-2">{it.particulars}</td>
+                          <td className="border px-3 py-2">{it.voucher || '-'}</td>
+                          <td className="border px-3 py-2 text-right">{it.debit ? fmt(it.debit) : ''}</td>
+                          <td className="border px-3 py-2 text-right">{it.credit ? fmt(it.credit) : ''}</td>
+                        </tr>
+                      )
+                    })}
+                    {/* Day total removed per request */}
+                  </>
                 )
               })}
             </tbody>
