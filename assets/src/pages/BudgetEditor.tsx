@@ -169,6 +169,7 @@ const BudgetEditor = () => {
 
   // Deleting state and handler (defined at top-level so hooks order is preserved)
   const [deleting, setDeleting] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleDelete = async () => {
     if (!id) return;
@@ -294,6 +295,9 @@ const BudgetEditor = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+
     // Convert accounts_amounts to lines array format expected by API
     const lines = Object.entries(formData.accounts_amounts || {}).map(([accountId, amount]) => ({
       account_id: parseInt(accountId, 10),
@@ -360,6 +364,8 @@ const BudgetEditor = () => {
     } catch (error) {
       console.error("Error saving budget:", error);
       alert("Failed to save budget: " + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -545,8 +551,8 @@ const BudgetEditor = () => {
           >
             Cancel
           </Button>
-          <Button className="bg-blue-400! rounded-full" type="submit">
-            {isNewBudget ? "Create Budget" : "Save Changes"}
+          <Button className="bg-blue-400! rounded-full" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? (isNewBudget ? 'Creating…' : 'Saving…') : (isNewBudget ? 'Create Budget' : 'Save Changes')}
           </Button>
         </div>
       </form>

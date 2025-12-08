@@ -31,42 +31,45 @@ class BudgetRepository {
 
         $insert = wp_parse_args( $data, $defaults );
 
-        $this->wpdb->insert( "{$this->prefix}erp_budgets", [
-            'title' => $insert['title'],
-            'description' => $insert['description'],
-            'entity_type' => $insert['entity_type'],
-            'entity_id' => $insert['entity_id'],
-            'fiscal_year' => $insert['fiscal_year'],
-            'currency' => $insert['currency'],
-            'status' => $insert['status'],
-            'start_date' => $insert['start_date'],
-            'end_date' => $insert['end_date'],
-            'created_by' => $insert['created_by'],
-        ], [ '%s', '%s', '%s', '%d', '%s', '%s', '%s', '%s', '%s', '%d' ] );
+        // Build insert data and formats dynamically so NULL values (e.g. start/end dates)
+        // do not cause prepare/format mismatches. Only include keys that are not null.
+        $data_to_insert = [];
+        $formats = [];
+
+        $map = [
+            'title' => '%s',
+            'description' => '%s',
+            'entity_type' => '%s',
+            'entity_id' => '%d',
+            'fiscal_year' => '%s',
+            'currency' => '%s',
+            'status' => '%s',
+            'start_date' => '%s',
+            'end_date' => '%s',
+            'created_by' => '%d',
+        ];
+
+        foreach ($map as $key => $fmt) {
+            // include value even if zero/empty string, but skip only when explicitly null
+            if (array_key_exists($key, $insert) && $insert[$key] !== null) {
+                $data_to_insert[$key] = $insert[$key];
+                $formats[] = $fmt;
+            }
+        }
+
+        $this->wpdb->insert("{$this->prefix}erp_budgets", $data_to_insert, $formats);
 
         $insert_id = (int) $this->wpdb->insert_id;
 
-        // Debug: if insert fails or produces insert_id 0, dump WPDB error and query
-        if ( $insert_id === 0 || ! empty( $this->wpdb->last_error ) ) {
+        // If insert reported an error, log it but do not die — allow caller to handle failure.
+        if ($insert_id === 0 || ! empty($this->wpdb->last_error)) {
             $debug = [
                 'insert_id'   => $insert_id,
                 'last_error'  => $this->wpdb->last_error,
-                'last_query'  => isset( $this->wpdb->last_query ) ? $this->wpdb->last_query : null,
-                'data'        => $insert,
+                'last_query'  => isset($this->wpdb->last_query) ? $this->wpdb->last_query : null,
+                'data'        => $data_to_insert,
             ];
-            print_r( $debug );
-            die();
-
-            // Log to PHP error log for background inspection
-            error_log( 'ERP Budgeting insertBudget debug: ' . print_r( $debug, true ) );
-
-            // Stop execution with readable debug output (temporary for debugging)
-            if ( function_exists( 'wp_die' ) ) {
-                wp_die( '<pre>' . esc_html( print_r( $debug, true ) ) . '</pre>' );
-            } else {
-                echo '<pre>' . htmlspecialchars( print_r( $debug, true ) ) . '</pre>';
-                die();
-            }
+            error_log('ERP Budgeting insertBudget debug: ' . print_r($debug, true));
         }
 
         return $insert_id;

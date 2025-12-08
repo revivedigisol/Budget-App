@@ -24,6 +24,7 @@ class BudgetService
         }
         // Accept either explicit start/end dates or a fiscal_year (from opening-balances names).
         // If fiscal_year is provided, resolve it to start_date/end_date using the ERP opening-balances names endpoint.
+        // If neither dates nor fiscal_year are provided, allow creation as a draft (start/end may be null).
         if (empty($payload['start_date']) || empty($payload['end_date'])) {
             if (! empty($payload['fiscal_year'])) {
                 $fy = strval($payload['fiscal_year']);
@@ -57,7 +58,8 @@ class BudgetService
                     }
                 }
             } else {
-                throw new \InvalidArgumentException('Start and end dates are required, or provide fiscal_year');
+                // No fiscal year provided and no explicit dates — allow creating a draft budget
+                // Leave start_date/end_date as null (BudgetRepository defaults will apply).
             }
         }
 
