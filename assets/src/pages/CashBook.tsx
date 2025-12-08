@@ -184,8 +184,9 @@ export default function CashBook() {
                           </td>
                           <td className="border px-3 py-2">{it.particulars}</td>
                           <td className="border px-3 py-2">{it.voucher || '-'}</td>
-                          <td className="border px-3 py-2 text-right">{it.debit ? fmt(it.debit) : ''}</td>
+                          {/* NOTE: swap displayed values so debit column shows credit and credit column shows debit */}
                           <td className="border px-3 py-2 text-right">{it.credit ? fmt(it.credit) : ''}</td>
+                          <td className="border px-3 py-2 text-right">{it.debit ? fmt(it.debit) : ''}</td>
                         </tr>
                       )
                     })}
@@ -198,7 +199,7 @@ export default function CashBook() {
               <tr className="bg-gray-50 font-semibold">
                 <td className="border px-3 py-2">Total</td>
                 <td className="border px-3 py-2" colSpan={4}></td>
-                <td className="border px-3 py-2 text-right">{fmt(overall.debit)} / {fmt(overall.credit)}</td>
+                <td className="border px-3 py-2 text-right">{fmt(overall.credit)} / {fmt(overall.debit)}</td>
               </tr>
             </tfoot>
           </table>
