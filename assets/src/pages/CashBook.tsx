@@ -198,8 +198,9 @@ export default function CashBook() {
             <tfoot>
               <tr className="bg-gray-50 font-semibold">
                 <td className="border px-3 py-2">Total</td>
-                <td className="border px-3 py-2" colSpan={4}></td>
-                <td className="border px-3 py-2 text-right">{fmt(overall.credit)} / {fmt(overall.debit)}</td>
+                <td className="border px-3 py-2" colSpan={3}></td>
+                <td className="border px-3 py-2 text-right">{fmt(overall.debit)}</td>
+                <td className="border px-3 py-2 text-right">{fmt(overall.credit)}</td>
               </tr>
             </tfoot>
           </table>
