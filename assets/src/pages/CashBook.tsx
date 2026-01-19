@@ -185,8 +185,8 @@ export default function CashBook() {
                           <td className="border px-3 py-2">{it.particulars}</td>
                           <td className="border px-3 py-2">{it.voucher || '-'}</td>
                           {/* NOTE: swap displayed values so debit column shows credit and credit column shows debit */}
-                          <td className="border px-3 py-2 text-right">{it.credit ? fmt(it.credit) : ''}</td>
                           <td className="border px-3 py-2 text-right">{it.debit ? fmt(it.debit) : ''}</td>
+                          <td className="border px-3 py-2 text-right">{it.credit ? fmt(it.credit) : ''}</td>
                         </tr>
                       )
                     })}
