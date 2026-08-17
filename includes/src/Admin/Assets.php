@@ -5,6 +5,8 @@ namespace Enle\ERP\Budgeting\Admin;
 class Assets {
     public function __construct() {
         add_action('admin_enqueue_scripts', [$this, 'enqueue_assets']);
+        // Filter REST ledgers response when requested from our Create New Budget page
+        add_filter('rest_post_dispatch', [$this, 'filter_ledgers_for_budget_page'], 10, 3);
     }
 
     public function enqueue_assets($hook) {
@@ -171,5 +173,41 @@ class Assets {
                 }
             })();
         ", 'before');
+    }
+
+    /**
+     * Filter the REST response for the ledgers endpoint when the request
+     * originates from the budgeting "Create New Budget" admin page. This
+     * restricts the returned ledgers to only Income and Expense charts (4 & 5)
+     * for that UI, without modifying the underlying chart of accounts.
+     */
+    public function filter_ledgers_for_budget_page( $result, $server, $request ) {
+        // Only act on the ledgers collection endpoint
+        $route = method_exists( $request, 'get_route' ) ? $request->get_route() : '';
+        if ( strpos( $route, '/erp/v1/accounting/v1/ledgers' ) === false ) {
+            return $result;
+        }
+
+        // Only filter for admin requests coming from our Create New Budget page.
+        $referer = isset( $_SERVER['HTTP_REFERER'] ) ? wp_unslash( $_SERVER['HTTP_REFERER'] ) : '';
+        if ( empty( $referer ) || strpos( $referer, 'page=erp-budgeting-new' ) === false ) {
+            return $result;
+        }
+
+        // If the result is a WP_REST_Response, extract data and filter it.
+        if ( is_a( $result, '\\WP_REST_Response' ) || is_a( $result, 'WP_REST_Response' ) ) {
+            $data = $result->get_data();
+            if ( is_array( $data ) ) {
+                $filtered = array_values( array_filter( $data, function( $item ) {
+                    $chart = isset( $item['chart_id'] ) ? intval( $item['chart_id'] ) : null;
+                    return $chart === 4 || $chart === 5;
+                } ) );
+
+                // Replace the response data with filtered list
+                $result->set_data( $filtered );
+            }
+        }
+
+        return $result;
     }
 }

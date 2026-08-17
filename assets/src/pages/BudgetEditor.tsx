@@ -53,7 +53,18 @@ const BudgetEditor = () => {
 
   // Fetch accounts
   const { data: accounts } = useSWR<Account[]>(
-    "/wp-json/erp/v1/accounting/v1/ledgers"
+    "/wp-json/erp/v1/accounting/v1/ledgers",
+    async (url: string) => {
+      try {
+        const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
+        if (!r.ok) return [] as Account[]
+        const json = await r.json()
+        return Array.isArray(json) ? (json as Account[]) : []
+      } catch (err) {
+        console.warn('Failed to fetch ledgers', err)
+        return [] as Account[]
+      }
+    }
   );
 
   // Fetch opening-balance year names (ERP years) and budgets list to determine
