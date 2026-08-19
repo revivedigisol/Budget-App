@@ -17,11 +17,57 @@ class BudgetService
         $this->repo = $repo ?: new BudgetRepository();
     }
 
+    /**
+     * Validate that all budget lines reference only Income or Expense accounts
+     * (chart_id = 4 for Income, 5 for Expense).
+     * 
+     * @param array $lines Budget lines to validate
+     * @throws \InvalidArgumentException If any line contains an invalid account type
+     */
+    private function validateBudgetLines($lines) {
+        if (empty($lines) || ! is_array($lines)) {
+            return;
+        }
+
+        // Check if the WP ERP ledger function exists
+        if (! function_exists('erp_acct_get_ledger')) {
+            // If ERP function not available, skip validation (will fail at DB level if needed)
+            return;
+        }
+
+        foreach ($lines as $line) {
+            if (empty($line['account_id'])) {
+                continue; // Skip lines without account_id
+            }
+
+            $account_id = (int) $line['account_id'];
+            $ledger = erp_acct_get_ledger($account_id);
+
+            if (! $ledger) {
+                throw new \InvalidArgumentException("Account ID {$account_id} not found");
+            }
+
+            $chart_id = isset($ledger->chart_id) ? (int) $ledger->chart_id : null;
+
+            // Only allow Income (4) and Expense (5)
+            if ($chart_id !== 4 && $chart_id !== 5) {
+                $chart_type = $ledger->account_name ?? 'Unknown';
+                throw new \InvalidArgumentException("Account '{$ledger->name}' ({$chart_type}) is not allowed in budget. Only Income and Expense accounts are permitted.");
+            }
+        }
+    }
+
     public function createBudget($payload)
     {
         if (empty($payload['title'])) {
             throw new \InvalidArgumentException('Title is required');
         }
+
+        // Validate budget lines before processing
+        if (! empty($payload['lines']) && is_array($payload['lines'])) {
+            $this->validateBudgetLines($payload['lines']);
+        }
+
         // Accept either explicit start/end dates or a fiscal_year (from opening-balances names).
         // If fiscal_year is provided, resolve it to start_date/end_date using the ERP opening-balances names endpoint.
         // If neither dates nor fiscal_year are provided, allow creation as a draft (start/end may be null).
@@ -141,6 +187,11 @@ class BudgetService
         $budget = $this->getBudgetWithLines($id);
         if (! $budget) {
             return false;
+        }
+
+        // Validate budget lines before processing
+        if (! empty($payload['lines']) && is_array($payload['lines'])) {
+            $this->validateBudgetLines($payload['lines']);
         }
 
         // Update budget metadata if provided. Support `fiscal_year` by resolving start/end dates.

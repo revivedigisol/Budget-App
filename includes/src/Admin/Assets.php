@@ -177,9 +177,13 @@ class Assets {
 
     /**
      * Filter the REST response for the ledgers endpoint when the request
-     * originates from the budgeting "Create New Budget" admin page. This
-     * restricts the returned ledgers to only Income and Expense charts (4 & 5)
-     * for that UI, without modifying the underlying chart of accounts.
+     * originates from the budgeting admin pages (Create New Budget or Edit Budget).
+     * This restricts the returned ledgers to only Income and Expense charts (4 & 5)
+     * for the Budget Editor UI, without modifying the underlying chart of accounts.
+     * 
+     * Applies to both:
+     * - page=erp-budgeting-new (Create new budget)
+     * - page=erp-budgeting (View/Edit budget, determined by presence of budget parameter)
      */
     public function filter_ledgers_for_budget_page( $result, $server, $request ) {
         // Only act on the ledgers collection endpoint
@@ -188,9 +192,18 @@ class Assets {
             return $result;
         }
 
-        // Only filter for admin requests coming from our Create New Budget page.
+        // Only filter for admin requests coming from the budgeting pages (both Create and Edit).
         $referer = isset( $_SERVER['HTTP_REFERER'] ) ? wp_unslash( $_SERVER['HTTP_REFERER'] ) : '';
-        if ( empty( $referer ) || strpos( $referer, 'page=erp-budgeting-new' ) === false ) {
+        if ( empty( $referer ) ) {
+            return $result;
+        }
+
+        // Check if the referer contains either the Create page (erp-budgeting-new) 
+        // or the main Budgets page (erp-budgeting) which is used for both viewing and editing.
+        $is_budgeting_page = strpos( $referer, 'page=erp-budgeting-new' ) !== false 
+                          || strpos( $referer, 'page=erp-budgeting' ) !== false;
+        
+        if ( ! $is_budgeting_page ) {
             return $result;
         }
 
