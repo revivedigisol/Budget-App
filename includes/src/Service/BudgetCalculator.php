@@ -12,11 +12,9 @@ class BudgetCalculator {
 
         $variance = $actual - $budgeted;
 
-        if ( abs( $budgeted ) < 0.000001 ) {
-            $variance_pct = $budgeted === 0.0 ? null : ( $actual / $budgeted ) * 100.0;
-        } else {
-            $variance_pct = ( $actual / $budgeted ) * 100.0;
-        }
+        // Variance % = (Variance ÷ Budget) × 100. Null when there's no budget to
+        // compare against, since the percentage is meaningless (and undefined) then.
+        $variance_pct = abs( $budgeted ) < 0.000001 ? null : ( $variance / $budgeted ) * 100.0;
 
         return [
             'variance' => $variance,

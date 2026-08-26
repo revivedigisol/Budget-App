@@ -264,28 +264,18 @@ class BudgetService
         // Get currency from WP ERP settings
         $currency = $this->getErpCurrency();
 
-        // Calculate date range based on fiscal year and period
-        $start_date = $fiscal_year . '-01-01';
-        $end_date = $fiscal_year . '-12-31';
+        // Resolve the fiscal year to WP ERP's actual financial-year record (id + real
+        // start/end dates) so date-range filtering is correct even when the fiscal
+        // year doesn't align to the calendar year (e.g. starts in April). Falls back
+        // to a plain calendar year if WP ERP has no matching financial year.
+        $fy = $this->resolveFiscalYear($fiscal_year);
+        $start_date = $fy['start_date'];
+        $end_date = $fy['end_date'];
 
         if ($period) {
-            switch ($period) {
-                case 'Q1':
-                    $start_date = $fiscal_year . '-01-01';
-                    $end_date = $fiscal_year . '-03-31';
-                    break;
-                case 'Q2':
-                    $start_date = $fiscal_year . '-04-01';
-                    $end_date = $fiscal_year . '-06-30';
-                    break;
-                case 'Q3':
-                    $start_date = $fiscal_year . '-07-01';
-                    $end_date = $fiscal_year . '-09-30';
-                    break;
-                case 'Q4':
-                    $start_date = $fiscal_year . '-10-01';
-                    $end_date = $fiscal_year . '-12-31';
-                    break;
+            $quarter = $this->getQuarterRange($start_date, $end_date, $period);
+            if ($quarter) {
+                [$start_date, $end_date] = $quarter;
             }
         }
 
@@ -296,10 +286,8 @@ class BudgetService
             'department_id' => $department_id ?: null,
         ]);
 
-        $total_budget = 0;
-        $total_actual = 0;
-
-        // Try to obtain ledger balances from WP ERP trial balance helper (preferred)
+        // Try to obtain ledger balances from WP ERP trial balance helper (preferred).
+        // These are the real, live "Actual Amount" figures - never user-entered.
         $ledgerBalances = [];
         if (function_exists('erp_acct_get_trial_balance')) {
             $tb = erp_acct_get_trial_balance([
@@ -321,32 +309,65 @@ class BudgetService
             }
         }
 
-        // Sum budgeted and actual amounts per budget using ledger balances when available
+        // Opening balances per ledger account for the fiscal year, from WP ERP's own
+        // opening-balances records - a real, historical figure carried over from the
+        // prior period's closing balance, not something entered on this budget.
+        $openingBalances = $this->getOpeningBalancesForYear($fy['id']);
+
+        // Aggregate budgeted amounts per account across every budget that falls in
+        // this period (a given account can appear in more than one matching budget).
+        $accountBudgets = [];
         foreach ($budgets as $budget) {
             $lines = $this->repo->getLinesByBudget($budget['id']);
-            $budgetedSum = 0;
-            $actualSum = 0;
-
             foreach ($lines as $line) {
-                $budgetedSum += (float) $line['amount'];
-
                 $acctId = isset($line['account_id']) ? (int) $line['account_id'] : 0;
+                if (! $acctId) {
+                    continue;
+                }
+                if (! isset($accountBudgets[$acctId])) {
+                    $accountBudgets[$acctId] = 0.0;
+                }
+                $accountBudgets[$acctId] += (float) $line['amount'];
+            }
+        }
 
-                if ($acctId) {
-                    if (! empty($ledgerBalances)) {
-                        $actualSum += isset($ledgerBalances[$acctId]) ? $ledgerBalances[$acctId] : 0;
-                    } else {
-                        // Fallback: sum logs from our budgeting logs table if ERP trial balance not available
-                        $logs = $this->repo->getLogsForPeriod($acctId, $start_date, $end_date);
-                        foreach ($logs as $log) {
-                            $actualSum += (float) $log['amount'];
-                        }
-                    }
+        $accounts = [];
+        $total_budget = 0;
+        $total_actual = 0;
+        $total_opening = 0;
+
+        foreach ($accountBudgets as $acctId => $budgetedSum) {
+            if (! empty($ledgerBalances)) {
+                $actual = isset($ledgerBalances[$acctId]) ? $ledgerBalances[$acctId] : 0.0;
+            } else {
+                // Fallback: sum logs from our own budgeting logs table if the ERP trial balance isn't available
+                $actual = 0.0;
+                foreach ($this->repo->getLogsForPeriod($acctId, $start_date, $end_date) as $log) {
+                    $actual += (float) $log['amount'];
                 }
             }
 
+            $opening = isset($openingBalances[$acctId]) ? $openingBalances[$acctId] : null;
+
+            $ledger = function_exists('erp_acct_get_ledger') ? erp_acct_get_ledger($acctId) : null;
+            $calc = BudgetCalculator::calculateVariance($actual, $budgetedSum);
+
+            $accounts[] = [
+                'account_id' => $acctId,
+                'code' => $ledger ? $ledger->code : null,
+                'name' => $ledger ? $ledger->name : null,
+                'opening_balance' => $opening,
+                'budget_amount' => $budgetedSum,
+                'actual_amount' => $actual,
+                'variance' => $calc['variance'],
+                'variance_pct' => $calc['variance_pct'],
+            ];
+
             $total_budget += $budgetedSum;
-            $total_actual += $actualSum;
+            $total_actual += $actual;
+            if ($opening !== null) {
+                $total_opening += $opening;
+            }
         }
 
         $variance = $total_actual - $total_budget;
@@ -355,11 +376,115 @@ class BudgetService
         return [
             'budget_amount' => $total_budget,
             'actual_amount' => $total_actual,
+            'opening_balance' => $total_opening,
             'variance' => $variance,
             'variance_percentage' => $variance_percentage,
             'currency' => $currency,
             'currency_symbol' => $this->getCurrencySymbol($currency),
+            'accounts' => $accounts,
         ];
+    }
+
+    /**
+     * Resolve a fiscal year name (e.g. "2025") to WP ERP's actual financial-year
+     * record via the opening-balances "names" list, which carries the real
+     * start_date/end_date for that year (not necessarily Jan 1 - Dec 31).
+     * Falls back to a plain calendar year when WP ERP has no matching record,
+     * mirroring the fallback used elsewhere in this class (createBudget/updateBudget).
+     *
+     * @param string $fiscal_year
+     * @return array{id: int|null, start_date: string, end_date: string}
+     */
+    private function resolveFiscalYear($fiscal_year)
+    {
+        $result = [
+            'id' => null,
+            'start_date' => $fiscal_year . '-01-01',
+            'end_date' => $fiscal_year . '-12-31',
+        ];
+
+        if (! function_exists('erp_acct_get_opening_balance_names')) {
+            return $result;
+        }
+
+        foreach ((array) erp_acct_get_opening_balance_names() as $name) {
+            if (isset($name['name']) && (string) $name['name'] === (string) $fiscal_year) {
+                $result['id'] = (int) $name['id'];
+                if (! empty($name['start_date'])) {
+                    $result['start_date'] = $name['start_date'];
+                }
+                if (! empty($name['end_date'])) {
+                    $result['end_date'] = $name['end_date'];
+                }
+                break;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * Split a fiscal year's real date range into four 3-month quarters and return
+     * the [start_date, end_date] pair for the requested quarter. Quarters are
+     * computed relative to the fiscal year's own start date (not the calendar
+     * year), so this works correctly for fiscal years that don't start in January.
+     * Q4's end date is pinned to the fiscal year's actual end date to absorb any
+     * leftover days. Returns null if $period isn't Q1-Q4 or the dates are invalid.
+     *
+     * @param string $fy_start_date
+     * @param string $fy_end_date
+     * @param string $period
+     * @return array{0: string, 1: string}|null
+     */
+    private function getQuarterRange($fy_start_date, $fy_end_date, $period)
+    {
+        $quarters = ['Q1' => 0, 'Q2' => 1, 'Q3' => 2, 'Q4' => 3];
+
+        if (! isset($quarters[$period])) {
+            return null;
+        }
+
+        try {
+            $fyStart = new \DateTime($fy_start_date);
+            $fyEnd = new \DateTime($fy_end_date);
+        } catch (\Exception $e) {
+            return null;
+        }
+
+        $index = $quarters[$period];
+        $qStart = (clone $fyStart)->modify('+' . ($index * 3) . ' months');
+
+        if ($index === 3) {
+            $qEnd = $fyEnd;
+        } else {
+            $qEnd = (clone $qStart)->modify('+3 months')->modify('-1 day');
+        }
+
+        return [$qStart->format('Y-m-d'), $qEnd->format('Y-m-d')];
+    }
+
+    /**
+     * Get opening balances per ledger account for a given WP ERP financial-year id,
+     * keyed by account_id.
+     *
+     * @param int|null $fy_id
+     * @return array<int,float>
+     */
+    private function getOpeningBalancesForYear($fy_id)
+    {
+        $map = [];
+
+        if (! $fy_id || ! function_exists('erp_acct_opening_balance_by_fn_year_id')) {
+            return $map;
+        }
+
+        foreach ((array) erp_acct_opening_balance_by_fn_year_id($fy_id) as $row) {
+            if (isset($row['id'])) {
+                $map[(int) $row['id']] = (float) ($row['balance'] ?? 0);
+            }
+        }
+
+        return $map;
     }
 
     /**
