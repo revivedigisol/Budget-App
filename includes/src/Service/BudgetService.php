@@ -259,23 +259,29 @@ class BudgetService
         return true;
     }
 
-    public function getReport($fiscal_year, $period = null, $department_id = null)
+    public function getReport($fiscal_year, $period = null, $department_id = null, $override_start = null, $override_end = null)
     {
         // Get currency from WP ERP settings
         $currency = $this->getErpCurrency();
 
-        // Resolve the fiscal year to WP ERP's actual financial-year record (id + real
-        // start/end dates) so date-range filtering is correct even when the fiscal
-        // year doesn't align to the calendar year (e.g. starts in April). Falls back
-        // to a plain calendar year if WP ERP has no matching financial year.
-        $fy = $this->resolveFiscalYear($fiscal_year);
-        $start_date = $fy['start_date'];
-        $end_date = $fy['end_date'];
+        // If the caller provided explicit start/end dates (frontend may compute
+        // quarter ranges client-side), honor those and skip fiscal-year
+        // resolution. Otherwise resolve the fiscal year and optionally apply
+        // the requested quarter period.
+        $fy = null; // Initialize to null; only set if not using override dates
+        if (! empty($override_start) && ! empty($override_end)) {
+            $start_date = $override_start;
+            $end_date = $override_end;
+        } else {
+            $fy = $this->resolveFiscalYear($fiscal_year);
+            $start_date = $fy['start_date'];
+            $end_date = $fy['end_date'];
 
-        if ($period) {
-            $quarter = $this->getQuarterRange($start_date, $end_date, $period);
-            if ($quarter) {
-                [$start_date, $end_date] = $quarter;
+            if ($period) {
+                $quarter = $this->getQuarterRange($start_date, $end_date, $period);
+                if ($quarter) {
+                    [$start_date, $end_date] = $quarter;
+                }
             }
         }
 
@@ -285,15 +291,19 @@ class BudgetService
             'end_date' => $end_date,
             'department_id' => $department_id ?: null,
         ]);
+        
+        error_log('ERP Budget Report: period ' . $start_date . ' to ' . $end_date . ' found ' . count($budgets) . ' budgets');
 
         // Try to obtain ledger balances from WP ERP trial balance helper (preferred).
         // These are the real, live "Actual Amount" figures - never user-entered.
         $ledgerBalances = [];
         if (function_exists('erp_acct_get_trial_balance')) {
+            error_log('ERP Budget: calling trial balance with start=' . $start_date . ' end=' . $end_date);
             $tb = erp_acct_get_trial_balance([
                 'start_date' => $start_date,
                 'end_date'   => $end_date,
             ]);
+            error_log('ERP Budget: trial balance returned ' . (is_array($tb) && isset($tb['rows']) ? count($tb['rows']) : 0) . ' chart groups');
 
             // $tb['rows'] is grouped by chart_id -> list of ledgers
             if (! empty($tb['rows']) && is_array($tb['rows'])) {
@@ -312,13 +322,48 @@ class BudgetService
         // Opening balances per ledger account for the fiscal year, from WP ERP's own
         // opening-balances records - a real, historical figure carried over from the
         // prior period's closing balance, not something entered on this budget.
-        $openingBalances = $this->getOpeningBalancesForYear($fy['id']);
+        // Only fetch if we have a resolved fiscal year (not when using override dates).
+        $openingBalances = [];
+        if ($fy && isset($fy['id'])) {
+            $openingBalances = $this->getOpeningBalancesForYear($fy['id']);
+        }
 
         // Aggregate budgeted amounts per account across every budget that falls in
         // this period (a given account can appear in more than one matching budget).
+        // When a specific quarter is requested, apportion full-year budgets to that quarter.
         $accountBudgets = [];
+        $isQuarterFilter = ! empty($override_start) && ! empty($override_end);
+        error_log('ERP Budget: isQuarterFilter=' . ($isQuarterFilter ? 'TRUE' : 'FALSE') . ' override_start=' . ($override_start ?? 'NULL') . ' override_end=' . ($override_end ?? 'NULL'));
+        
         foreach ($budgets as $budget) {
             $lines = $this->repo->getLinesByBudget($budget['id']);
+            
+            // Determine if this budget should be apportioned to the quarter
+            $budgetProration = 1.0; // default: full amount
+            if ($isQuarterFilter && $budget['start_date'] && $budget['end_date']) {
+                try {
+                    $budgetStart = new \DateTime($budget['start_date']);
+                    $budgetEnd = new \DateTime($budget['end_date']);
+                    $quarterStart = new \DateTime($start_date);
+                    $quarterEnd = new \DateTime($end_date);
+                    
+                    // Calculate total budget span in days
+                    $budgetSpan = $budgetStart->diff($budgetEnd)->days + 1;
+                    // Calculate quarter span in days
+                    $quarterSpan = $quarterStart->diff($quarterEnd)->days + 1;
+                    
+                    // If budget spans the entire year but quarter is a subset, prorate
+                    if ($budgetSpan >= 365) {
+                        $budgetProration = $quarterSpan / $budgetSpan;
+                        error_log('ERP Budget: budget ' . $budget['id'] . ' span=' . $budgetSpan . ' quarter=' . $quarterSpan . ' proration=' . $budgetProration);
+                    }
+                } catch (\Exception $e) {
+                    // If date parsing fails, use full amount
+                    $budgetProration = 1.0;
+                    error_log('ERP Budget: date parsing failed: ' . $e->getMessage());
+                }
+            }
+            
             foreach ($lines as $line) {
                 $acctId = isset($line['account_id']) ? (int) $line['account_id'] : 0;
                 if (! $acctId) {
@@ -327,7 +372,7 @@ class BudgetService
                 if (! isset($accountBudgets[$acctId])) {
                     $accountBudgets[$acctId] = 0.0;
                 }
-                $accountBudgets[$acctId] += (float) $line['amount'];
+                $accountBudgets[$acctId] += (float) $line['amount'] * $budgetProration;
             }
         }
 

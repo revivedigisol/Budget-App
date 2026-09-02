@@ -92,6 +92,11 @@ class RestController {
             'args' => [
                 'fiscal_year' => [ 'required' => true ],
                 'period' => [],
+                // Allow explicit start/end dates to be provided by the client
+                // (frontend may compute quarter ranges) — these take precedence
+                // over the `period` parameter when present.
+                'start_date' => [],
+                'end_date'   => [],
                 'department_id' => [ 'validate_callback' => function( $v ) { return is_numeric( $v ); } ],
             ],
         ] );
@@ -171,12 +176,21 @@ class RestController {
     public function getBudgetReport( \WP_REST_Request $request ) {
         $fiscal_year = $request->get_param( 'fiscal_year' );
         $period = $request->get_param( 'period' );
+        $start_date = $request->get_param( 'start_date' );
+        $end_date = $request->get_param( 'end_date' );
         $department_id = $request->get_param( 'department_id' ) ? (int) $request->get_param( 'department_id' ) : null;
 
+        error_log('getBudgetReport called: fiscal_year=' . $fiscal_year . ' period=' . $period . ' start=' . $start_date . ' end=' . $end_date);
+
         try {
-            $report = $this->service->getReport( $fiscal_year, $period, $department_id );
+            // If explicit dates were provided, pass them through so the service
+            // can use the exact range requested by the client (useful for
+            // quarter selection computed in the frontend). Otherwise fall back
+            // to the fiscal_year + period behaviour.
+            $report = $this->service->getReport( $fiscal_year, $period, $department_id, $start_date, $end_date );
             return rest_ensure_response( $report );
         } catch ( \Exception $e ) {
+            error_log('getBudgetReport error: ' . $e->getMessage());
             return new \WP_Error( 'report_error', $e->getMessage(), [ 'status' => 500 ] );
         }
     }
