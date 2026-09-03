@@ -70,7 +70,7 @@ const Reports = () => {
     accounts: []
   };
 
-  const { data: report, error } = useSWR<BudgetReport>(
+  const { data: report, error, isLoading } = useSWR<BudgetReport>(
     // If user selected a quarter, compute an explicit start/end for that
     // quarter (calendar-year quarters) and send them to the API. The server
     // will honor explicit start/end when present.
@@ -97,7 +97,7 @@ const Reports = () => {
         }
       }
       if (filters.department_id !== undefined && filters.department_id !== null) {
-        params.department_id = String(filters.department_id as any);
+        params.department_id = String(filters.department_id);
       }
 
       const url = `/wp-json/erp/v1/budgets/reports?${new URLSearchParams(params)}`;
@@ -106,20 +106,41 @@ const Reports = () => {
     })(),
     // fetcher that adds WP nonce to avoid 401 on protected endpoints
     async (url: string) => {
-      try {
-        const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } });
-        if (!r.ok) throw new Error('Failed to load report')
-        return (await r.json()) as BudgetReport
-      } catch (err) {
+      const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } });
+      if (!r.ok) {
+        const err = new Error(`Report request failed (HTTP ${r.status})`) as Error & { status?: number }
+        err.status = r.status
         console.error('Error fetching report:', err)
         throw err
       }
+      return (await r.json()) as BudgetReport
     },
     {
       fallbackData: emptyReport,
+      shouldRetryOnError: false,
       onError: (err) => console.error('Error fetching report:', err)
     }
   );
+
+  // Fiscal years that actually exist in WP ERP's accounting data. Used to tell the
+  // user when they've asked for a year with no data, instead of a hard-coded cutoff.
+  const { data: availableYears } = useSWR<number[]>(
+    '/wp-json/erp/v1/accounting/v1/opening-balances/names',
+    async (url: string) => {
+      const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
+      if (!r.ok) return []
+      const json = await r.json()
+      const names: unknown[] = Array.isArray(json) ? json : []
+      const years = names
+        .map((n) => {
+          const name = (n && typeof n === 'object' && 'name' in n) ? (n as { name?: unknown }).name : n
+          return parseInt(String(name ?? ''), 10)
+        })
+        .filter((y) => !isNaN(y))
+      return Array.from(new Set(years)).sort((a, b) => a - b)
+    },
+    { revalidateOnFocus: false }
+  )
 
   const detailRows = report?.accounts ?? []
   const currency = report?.currency_symbol ?? '$'
@@ -171,7 +192,23 @@ const Reports = () => {
     pct == null ? 'N/A' : `${Math.abs(pct).toFixed(1)}% ${fav === 'neutral' ? '' : fav === 'favorable' ? 'F' : 'A'}`.trim()
 
   const fiscalYearNum = parseInt(filters.fiscal_year || '', 10)
-  const isBefore2025 = !isNaN(fiscalYearNum) && fiscalYearNum < 2025
+  const years = availableYears ?? []
+  const earliestYear = years.length ? years[0] : null
+  const latestYear = years.length ? years[years.length - 1] : null
+  // Out of range only when we actually know the available years and the requested
+  // year falls outside them — no hard-coded cutoff.
+  const isOutOfRange =
+    years.length > 0 && !isNaN(fiscalYearNum) &&
+    (fiscalYearNum < (earliestYear as number) || fiscalYearNum > (latestYear as number))
+  const rangeLabel = earliestYear != null && latestYear != null
+    ? (earliestYear === latestYear ? String(earliestYear) : `${earliestYear}–${latestYear}`)
+    : null
+
+  const httpStatus = (error as (Error & { status?: number }) | undefined)?.status
+  const isRealError = !!error && !isOutOfRange
+  const isBusy = isLoading && !error
+  const hasReportData = !error && !isOutOfRange && !isBusy && detailRows.length > 0
+  const isEmptyPeriod = !error && !isOutOfRange && !isBusy && detailRows.length === 0
 
   return (
     <div className="space-y-6">
@@ -182,11 +219,29 @@ const Reports = () => {
           <div className="grid grid-cols-3 gap-4">
             <div>
               <Label>Fiscal Year</Label>
-              <Input
-                type="text"
-                value={filters.fiscal_year}
-                onChange={(e) => setFilters({ ...filters, fiscal_year: e.target.value })}
-              />
+              {years.length > 0 ? (
+                <select
+                  value={filters.fiscal_year}
+                  onChange={(e) => setFilters({ ...filters, fiscal_year: e.target.value })}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm px-3 py-2"
+                >
+                  {!years.includes(fiscalYearNum) && (
+                    <option value={filters.fiscal_year}>{filters.fiscal_year || 'Select year'}</option>
+                  )}
+                  {years.map((y) => (
+                    <option key={y} value={String(y)}>{y}</option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  type="text"
+                  value={filters.fiscal_year}
+                  onChange={(e) => setFilters({ ...filters, fiscal_year: e.target.value })}
+                />
+              )}
+              {rangeLabel && (
+                <p className="mt-1 text-xs text-gray-500">Accounting data available for {rangeLabel}</p>
+              )}
             </div>
             <div>
               <Label>Period</Label>
@@ -204,11 +259,24 @@ const Reports = () => {
             </div>
           </div>
 
-          {isBefore2025 ? (
-            <div>there is no report available for this time range,</div>
-          ) : error ? (
-            <div>there is no report available for this time range,</div>
-          ) : (
+          {isOutOfRange ? (
+            <div className="mt-6 rounded-md bg-gray-50 border border-gray-200 p-4 text-sm text-gray-600">
+              No accounting data for fiscal year {filters.fiscal_year}.
+              {rangeLabel ? ` Reports are available for ${rangeLabel}.` : ''}
+            </div>
+          ) : isBusy ? (
+            <div className="mt-6 rounded-md bg-gray-50 border border-gray-200 p-4 text-sm text-gray-600">
+              Loading report…
+            </div>
+          ) : isRealError ? (
+            <div className="mt-6 rounded-md bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+              Couldn’t load this report{httpStatus ? ` (HTTP ${httpStatus})` : ''}. Please check your connection and try again.
+            </div>
+          ) : isEmptyPeriod ? (
+            <div className="mt-6 rounded-md bg-gray-50 border border-gray-200 p-4 text-sm text-gray-600">
+              No budgets cover {filters.period ? `${filters.period} ` : ''}{filters.fiscal_year}. Create a budget for this period to see its performance here.
+            </div>
+          ) : hasReportData ? (
             <div className="space-y-6 mt-8">
               {/* Surplus / deficit position */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -287,8 +355,9 @@ const Reports = () => {
                 </table>
               </div>
             </div>
-          )}
+          ) : null}
         {/* Budget Details table */}
+        {hasReportData && (
         <div className="mt-6 bg-white shadow rounded-lg p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Budget Details</h3>
@@ -371,6 +440,7 @@ const Reports = () => {
             </table>
           </div>
         </div>
+        )}
         </div>
       </div>
     </div>
