@@ -46,6 +46,7 @@ require_once ERP_BUDGETING_PLUGIN_DIR . 'includes/src/Bootstrap.php';
 
 use Enle\ERP\Budgeting\Migration;
 use Enle\ERP\Budgeting\Cron\Reconciler;
+use Enle\ERP\Budgeting\Sync\SyncCron;
 
 /**
  * Ensure WP ERP is active before loading module features.
@@ -95,11 +96,19 @@ register_activation_hook( __FILE__, function() {
     if ( class_exists( Reconciler::class ) ) {
         Reconciler::schedule();
     }
+
+    if ( class_exists( SyncCron::class ) ) {
+        SyncCron::schedule();
+    }
 } );
 
 register_deactivation_hook( __FILE__, function() {
     if ( class_exists( Reconciler::class ) ) {
         Reconciler::unschedule();
+    }
+
+    if ( class_exists( SyncCron::class ) ) {
+        SyncCron::unschedule();
     }
 } );
 

@@ -6,6 +6,9 @@ use Enle\ERP\Budgeting\Listener\TransactionListener;
 use Enle\ERP\Budgeting\Cron\Reconciler;
 use Enle\ERP\Budgeting\Admin\Assets;
 use Enle\ERP\Budgeting\Admin\Menu;
+use Enle\ERP\Budgeting\Sync\SyncListener;
+use Enle\ERP\Budgeting\Sync\SyncCron;
+use Enle\ERP\Budgeting\Sync\SyncRestController;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -32,5 +35,16 @@ add_action( 'plugins_loaded', function() {
     }
     if ( class_exists( Menu::class ) ) {
         new Menu();
+    }
+
+    // Multisite consolidation roll-up (subsite books -> Holding site).
+    if ( class_exists( SyncRestController::class ) ) {
+        new SyncRestController();
+    }
+    if ( class_exists( SyncListener::class ) ) {
+        new SyncListener();
+    }
+    if ( class_exists( SyncCron::class ) ) {
+        new SyncCron();
     }
 });

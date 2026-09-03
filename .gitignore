@@ -1,0 +1,2 @@
+# Local MCP server config — contains an application password, do not commit
+.mcp.json

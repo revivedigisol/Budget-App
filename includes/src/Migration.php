@@ -92,6 +92,10 @@ class Migration {
             "  KEY budget_id (budget_id)\n" .
             ") $charset_collate";
 
+        // Consolidation sync ledger (see Sync\ConsolidationSync). Lives on the
+        // Holding site; keyed (source_blog, source_trn_no) for idempotency.
+        $tables[] = self::syncMapDdl( $prefix, $charset_collate );
+
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
         foreach ( $tables as $sql ) {
@@ -110,5 +114,47 @@ class Migration {
         } else {
             update_option( 'erp_budget_db_version', '0.1.0' );
         }
+    }
+
+    /**
+     * Create the consolidation sync ledger for the current site if it is
+     * missing. Cheap to call on every sweep — used by Sync\ConsolidationSync
+     * so the table exists on the Holding site even when this plugin was
+     * activated there before the sync feature shipped.
+     */
+    public static function ensureSyncTable() {
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'erp_budget_sync_map';
+        if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) === $table ) {
+            return;
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta( self::syncMapDdl( $wpdb->prefix, $wpdb->get_charset_collate() ) );
+    }
+
+    private static function syncMapDdl( $prefix, $charset_collate ) {
+        return "CREATE TABLE {$prefix}erp_budget_sync_map (\n" .
+            "  id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,\n" .
+            "  source_blog INT(11) NOT NULL,\n" .
+            "  source_trn_no BIGINT(20) NOT NULL,\n" .
+            "  source_type VARCHAR(50) DEFAULT NULL,\n" .
+            "  entity_code VARCHAR(4) DEFAULT NULL,\n" .
+            "  target_voucher_no BIGINT(20) DEFAULT NULL,\n" .
+            "  status VARCHAR(20) NOT NULL DEFAULT 'pending',\n" .
+            "  line_count INT(11) DEFAULT 0,\n" .
+            "  amount DECIMAL(20,2) DEFAULT 0.00,\n" .
+            "  source_hash CHAR(40) DEFAULT NULL,\n" .
+            "  missing_codes VARCHAR(255) DEFAULT NULL,\n" .
+            "  message TEXT,\n" .
+            "  trn_date DATE DEFAULT NULL,\n" .
+            "  synced_at DATETIME DEFAULT NULL,\n" .
+            "  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,\n" .
+            "  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,\n" .
+            "  PRIMARY KEY (id),\n" .
+            "  UNIQUE KEY source_trn (source_blog, source_trn_no),\n" .
+            "  KEY status (status)\n" .
+            ") $charset_collate";
     }
 }
