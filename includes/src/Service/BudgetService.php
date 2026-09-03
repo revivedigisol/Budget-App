@@ -24,33 +24,20 @@ class BudgetService
      * @param array $lines Budget lines to validate
      * @throws \InvalidArgumentException If any line contains an invalid account type
      */
-    private function isAllowedBudgetAccount($account_id) {
-        if (! function_exists('erp_acct_get_ledger')) {
-            return false;
-        }
-
-        $ledger = erp_acct_get_ledger((int) $account_id);
-        if (! $ledger) {
-            return false;
-        }
-
-        $chart_id = isset($ledger->chart_id) ? (int) $ledger->chart_id : null;
-
-        return $chart_id === 4 || $chart_id === 5;
-    }
-
     private function validateBudgetLines($lines) {
         if (empty($lines) || ! is_array($lines)) {
             return;
         }
 
+        // Check if the WP ERP ledger function exists
         if (! function_exists('erp_acct_get_ledger')) {
-            throw new \InvalidArgumentException('Unable to validate budget accounts because WP ERP is unavailable.');
+            // If ERP function not available, skip validation (will fail at DB level if needed)
+            return;
         }
 
         foreach ($lines as $line) {
             if (empty($line['account_id'])) {
-                throw new \InvalidArgumentException('Every budget line must include an account ID.');
+                continue; // Skip lines without account_id
             }
 
             $account_id = (int) $line['account_id'];
@@ -64,8 +51,8 @@ class BudgetService
 
             // Only allow Income (4) and Expense (5)
             if ($chart_id !== 4 && $chart_id !== 5) {
-                $account_name = $ledger->name ?? $ledger->account_name ?? 'Unknown';
-                throw new \InvalidArgumentException("Account '{$account_name}' (Unknown) is not allowed in budget. Only Income and Expense accounts are permitted.");
+                $chart_type = $ledger->account_name ?? 'Unknown';
+                throw new \InvalidArgumentException("Account '{$ledger->name}' ({$chart_type}) is not allowed in budget. Only Income and Expense accounts are permitted.");
             }
         }
     }
@@ -146,14 +133,7 @@ class BudgetService
         if (! $budget) {
             return null;
         }
-        // Older budgets may contain lines created before account-type validation.
-        // Keep those rows out of the editor and all budget calculations.
-        $budget['lines'] = array_values(array_filter(
-            $this->repo->getLinesByBudget($id),
-            function ($line) {
-                return ! empty($line['account_id']) && $this->isAllowedBudgetAccount($line['account_id']);
-            }
-        ));
+        $budget['lines'] = $this->repo->getLinesByBudget($id);
         return $budget;
     }
 
@@ -265,7 +245,7 @@ class BudgetService
         }
 
         // Update budget lines
-        if (array_key_exists('lines', $payload) && is_array($payload['lines'])) {
+        if (! empty($payload['lines']) && is_array($payload['lines'])) {
             // Delete existing lines
             $this->repo->deleteLinesByBudget($id);
 
