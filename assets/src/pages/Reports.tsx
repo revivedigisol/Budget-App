@@ -105,6 +105,11 @@ const Reports = () => {
   const totalActual = detailRows.reduce((total, row) => total + row.actual_amount, 0)
   const currency = report?.currency_symbol ?? '$'
   const fmt = (value: number | null | undefined) => value == null ? 'N/A' : (currency + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+  const favorability = detailRows.length === 0
+    ? 'neutral'
+    : new Set(detailRows.map(row => row.favorability)).size > 1
+      ? 'mixed'
+      : detailRows[0].favorability
 
   const fiscalYearNum = parseInt(filters.fiscal_year || '', 10)
   const isBefore2025 = !isNaN(fiscalYearNum) && fiscalYearNum < 2025
@@ -157,6 +162,9 @@ const Reports = () => {
               <div className="bg-yellow-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-yellow-800">Variance</h3>
                 <p className="mt-2 text-2xl font-semibold text-yellow-900">{report?.currency_symbol}{report?.variance?.toLocaleString() ?? '0'}</p>
+                <p className={`mt-1 text-sm font-semibold ${favorability === 'favorable' ? 'text-green-700' : favorability === 'unfavorable' ? 'text-red-700' : 'text-gray-600'}`}>
+                  {favorability === 'favorable' ? 'Favourable' : favorability === 'unfavorable' ? 'Unfavourable' : favorability === 'mixed' ? 'Mixed' : 'N/A'}
+                </p>
               </div>
               <div className="bg-purple-50 p-4 rounded-lg">
                 <h3 className="text-sm font-medium text-purple-800">Variance %</h3>
@@ -199,12 +207,7 @@ const Reports = () => {
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.opening_balance)}</td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.budget_amount)}</td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.actual_amount)}</td>
-                      <td className="px-3 py-2 text-sm text-right">
-                        <div className="text-gray-700">{fmt(r.variance)}</div>
-                        <div className={`text-xs font-semibold ${r.favorability === 'favorable' ? 'text-green-700' : r.favorability === 'unfavorable' ? 'text-red-700' : 'text-gray-500'}`}>
-                          {r.favorability === 'favorable' ? 'Favourable' : r.favorability === 'unfavorable' ? 'Unfavourable' : 'N/A'}
-                        </div>
-                      </td>
+                      <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.variance)}</td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{r.variance_pct != null ? `${r.variance_pct.toFixed(1)}%` : 'N/A'}</td>
                     </tr>
                   )
