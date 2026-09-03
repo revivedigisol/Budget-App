@@ -18,6 +18,7 @@ interface ReportAccountRow {
   actual_amount: number
   variance: number
   variance_pct: number | null
+  favorability: 'favorable' | 'unfavorable' | 'neutral'
 }
 
 interface BudgetReport {
@@ -100,6 +101,10 @@ const Reports = () => {
   );
 
   const detailRows = report?.accounts ?? []
+  const totalBudget = detailRows.reduce((total, row) => total + row.budget_amount, 0)
+  const totalActual = detailRows.reduce((total, row) => total + row.actual_amount, 0)
+  const currency = report?.currency_symbol ?? '$'
+  const fmt = (value: number | null | undefined) => value == null ? 'N/A' : (currency + value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 
   const fiscalYearNum = parseInt(filters.fiscal_year || '', 10)
   const isBefore2025 = !isNaN(fiscalYearNum) && fiscalYearNum < 2025
@@ -187,8 +192,6 @@ const Reports = () => {
                 )}
 
                 {detailRows.map(r => {
-                  const currency = report?.currency_symbol ?? '$'
-                  const fmt = (v: number | null | undefined) => v == null ? 'N/A' : (currency + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
                   return (
                     <tr key={r.account_id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-sm text-gray-700 whitespace-nowrap">{r.code}</td>
@@ -196,12 +199,28 @@ const Reports = () => {
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.opening_balance)}</td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.budget_amount)}</td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.actual_amount)}</td>
-                      <td className="px-3 py-2 text-sm text-right text-gray-700">{fmt(r.variance)}</td>
+                      <td className="px-3 py-2 text-sm text-right">
+                        <div className="text-gray-700">{fmt(r.variance)}</div>
+                        <div className={`text-xs font-semibold ${r.favorability === 'favorable' ? 'text-green-700' : r.favorability === 'unfavorable' ? 'text-red-700' : 'text-gray-500'}`}>
+                          {r.favorability === 'favorable' ? 'Favourable' : r.favorability === 'unfavorable' ? 'Unfavourable' : 'N/A'}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-sm text-right text-gray-700">{r.variance_pct != null ? `${r.variance_pct.toFixed(1)}%` : 'N/A'}</td>
                     </tr>
                   )
                 })}
               </tbody>
+              {detailRows.length > 0 && (
+                <tfoot className="border-t-2 border-gray-300 bg-gray-50">
+                  <tr>
+                    <td className="px-3 py-3 text-sm font-semibold text-gray-800" colSpan={3}>Total</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-right text-gray-800">{fmt(totalBudget)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-right text-gray-800">{fmt(totalActual)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-right text-gray-800">{fmt(totalActual - totalBudget)}</td>
+                    <td className="px-3 py-3 text-sm font-semibold text-right text-gray-800">{totalBudget !== 0 ? `${(((totalActual - totalBudget) / totalBudget) * 100).toFixed(1)}%` : 'N/A'}</td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </div>

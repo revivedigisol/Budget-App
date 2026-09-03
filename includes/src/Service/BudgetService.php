@@ -396,6 +396,8 @@ class BudgetService
 
             $ledger = function_exists('erp_acct_get_ledger') ? erp_acct_get_ledger($acctId) : null;
             $calc = BudgetCalculator::calculateVariance($actual, $budgetedSum);
+            $accountType = $ledger && (int) ($ledger->chart_id ?? 0) === 5 ? 'expense' : 'income';
+            $favorability = BudgetCalculator::favorability($accountType, $actual, $budgetedSum);
 
             $accounts[] = [
                 'account_id' => $acctId,
@@ -406,6 +408,7 @@ class BudgetService
                 'actual_amount' => $actual,
                 'variance' => $calc['variance'],
                 'variance_pct' => $calc['variance_pct'],
+                'favorability' => $favorability,
             ];
 
             $total_budget += $budgetedSum;
