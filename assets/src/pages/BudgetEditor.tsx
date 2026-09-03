@@ -331,7 +331,7 @@ const BudgetEditor = () => {
       amount: parseFloat(amount || '0'),
       period_type: 'annual', // Default to annual period type
     })).filter(line => {
-      const account = accounts?.find((candidate) => candidate.id === line.account_id)
+      const account = accounts?.find((candidate) => String(candidate.id) === String(line.account_id))
       const chartId = account?.chart_id != null ? String(account.chart_id) : ''
       const accountType = String(account?.account_type ?? account?.type ?? '').toLowerCase()
       const isAllowed = accountType
