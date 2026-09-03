@@ -49,8 +49,6 @@ const BudgetEditor = () => {
     name: string;
     code: string;
     chart_id?: string | number;
-    account_type?: string;
-    type?: string;
   }
 
   // Fetch accounts
@@ -129,7 +127,7 @@ const BudgetEditor = () => {
           if (!exists) opts.push(current);
         }
       }
-    } catch {
+    } catch (err) {
       // ignore
     }
     return opts;
@@ -151,14 +149,9 @@ const BudgetEditor = () => {
     const out: Record<string, Account[]> = {}
     if (!accounts) return out
     for (const a of accounts) {
-      const accountType = String(a.account_type ?? a.type ?? '').toLowerCase()
-      const chartId = a.chart_id != null
-        ? String(a.chart_id)
-        : accountType === 'income' ? '4' : accountType === 'expense' ? '5' : 'default'
-      const isAllowed = accountType
-        ? accountType === 'income' || accountType === 'expense'
-        : chartId === '4' || chartId === '5'
-      if (!isAllowed) continue
+      // account object from API may contain chart_id as string or number
+      // guard for missing chart_id by defaulting to 'default'
+      const chartId = a.chart_id != null ? String(a.chart_id) : 'default'
       if (!out[chartId]) out[chartId] = []
       out[chartId].push(a)
     }
@@ -245,7 +238,7 @@ const BudgetEditor = () => {
   const budgetedSurplus = totalIncome - totalExpense
 
   useEffect(() => {
-    if (!budget || !accounts) return;
+    if (!budget) return;
     const b = budget as unknown as ApiBudget;
     console.log('Budget data from API:', b);
 
@@ -261,13 +254,7 @@ const BudgetEditor = () => {
     // First check for lines array (new format)
     if (b.lines && Array.isArray(b.lines)) {
       for (const line of b.lines) {
-        const account = accounts.find((candidate) => String(candidate.id) === String(line.account_id))
-        const chartId = account?.chart_id != null ? String(account.chart_id) : ''
-        const accountType = String(account?.account_type ?? account?.type ?? '').toLowerCase()
-        const isAllowed = accountType
-          ? accountType === 'income' || accountType === 'expense'
-          : chartId === '4' || chartId === '5'
-        if (line.account_id && account && isAllowed) {
+        if (line.account_id) {
           acctAmounts[String(line.account_id)] = String(line.amount || '');
         }
       }
@@ -314,7 +301,7 @@ const BudgetEditor = () => {
         if (!isNaN(parsed.getTime())) setSelectedFiscalYear(String(parsed.getFullYear()));
       }
     }
-  }, [budget, accounts, startOfYear, endOfYear, openingNames]);
+  }, [budget, startOfYear, endOfYear, openingNames]);
 
   if (!isNewBudget && error) return <div>Failed to load budget</div>;
   if (!isNewBudget && !budget) return <div>Loading...</div>;
@@ -330,15 +317,7 @@ const BudgetEditor = () => {
       account_id: parseInt(accountId, 10),
       amount: parseFloat(amount || '0'),
       period_type: 'annual', // Default to annual period type
-    })).filter(line => {
-      const account = accounts?.find((candidate) => candidate.id === line.account_id)
-      const chartId = account?.chart_id != null ? String(account.chart_id) : ''
-      const accountType = String(account?.account_type ?? account?.type ?? '').toLowerCase()
-      const isAllowed = accountType
-        ? accountType === 'income' || accountType === 'expense'
-        : chartId === '4' || chartId === '5'
-      return isAllowed && !isNaN(line.amount) && line.amount > 0
-    }); // Only submit non-zero Income and Expense accounts
+    })).filter(line => !isNaN(line.amount) && line.amount > 0); // Only include non-zero amounts
 
     // Build payload. For new budgets, prefer sending `fiscal_year` when a fiscal period
     // was selected (this prevents duplicate year assignments). For edits, preserve
