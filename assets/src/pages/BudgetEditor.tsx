@@ -231,8 +231,11 @@ const BudgetEditor = () => {
     return totals
   }, [accountsByChart, formData])
 
-  // Grand total across all chart groups
-  const grandTotal = useMemo(() => Object.values(chartTotals).reduce((s, v) => s + (v || 0), 0), [chartTotals])
+  // Budgeted income (chart_id 4) and expenses (chart_id 5) are tracked as
+  // separate categories. The budgeted surplus/(deficit) is Income − Expenses.
+  const totalIncome = useMemo(() => chartTotals['4'] ?? 0, [chartTotals])
+  const totalExpense = useMemo(() => chartTotals['5'] ?? 0, [chartTotals])
+  const budgetedSurplus = totalIncome - totalExpense
 
   useEffect(() => {
     if (!budget) return;
@@ -387,6 +390,27 @@ const BudgetEditor = () => {
         {isNewBudget ? "Create New Budget" : "Edit Budget"}
       </h2>
 
+      {/* Budgeted surplus/(deficit): Total Budgeted Income − Total Budgeted Expenses */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-green-50 border border-green-100 p-4 rounded-lg">
+          <h3 className="text-sm font-medium text-green-800">Total Budgeted Income</h3>
+          <p className="mt-1 text-2xl font-semibold text-green-900">{formatCurrency(totalIncome)}</p>
+        </div>
+        <div className="bg-red-50 border border-red-100 p-4 rounded-lg">
+          <h3 className="text-sm font-medium text-red-800">Total Budgeted Expenses</h3>
+          <p className="mt-1 text-2xl font-semibold text-red-900">{formatCurrency(totalExpense)}</p>
+        </div>
+        <div className={`${budgetedSurplus >= 0 ? "bg-blue-50 border-blue-100" : "bg-amber-50 border-amber-100"} border p-4 rounded-lg`}>
+          <h3 className={`text-sm font-medium ${budgetedSurplus >= 0 ? "text-blue-800" : "text-amber-800"}`}>
+            Budgeted {budgetedSurplus >= 0 ? "Surplus" : "Deficit"}
+          </h3>
+          <p className={`mt-1 text-2xl font-semibold ${budgetedSurplus >= 0 ? "text-blue-900" : "text-amber-900"}`}>
+            {formatCurrency(Math.abs(budgetedSurplus))}
+          </p>
+          <p className="mt-1 text-xs text-gray-500">Income − Expenses</p>
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Two-column header: left = title & dates, right = description */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -471,7 +495,12 @@ const BudgetEditor = () => {
         <div className="mt-6">
           <div className="flex items-center justify-between">
             <Label>Chart of Accounts — Budget Amounts</Label>
-            <div className="text-sm font-semibold text-gray-800">Total Amount of Allocated budget: <span className="ml-2">{formatCurrency(grandTotal)}</span></div>
+            <div className="text-sm font-semibold text-gray-800">
+              Budgeted {budgetedSurplus >= 0 ? "Surplus" : "Deficit"}:
+              <span className={`ml-2 ${budgetedSurplus >= 0 ? "text-green-700" : "text-red-700"}`}>
+                {formatCurrency(Math.abs(budgetedSurplus))}
+              </span>
+            </div>
           </div>
           <div className="mt-2 border rounded-lg shadow-sm">
             <div

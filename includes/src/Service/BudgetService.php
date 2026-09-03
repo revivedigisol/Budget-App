@@ -381,6 +381,13 @@ class BudgetService
         $total_actual = 0;
         $total_opening = 0;
 
+        // Income (chart_id 4) and expenses (chart_id 5) are tracked separately so
+        // the report can show a budgeted/actual surplus or deficit that reconciles.
+        $income_budget = 0;
+        $income_actual = 0;
+        $expense_budget = 0;
+        $expense_actual = 0;
+
         foreach ($accountBudgets as $acctId => $budgetedSum) {
             if (! empty($ledgerBalances)) {
                 $actual = isset($ledgerBalances[$acctId]) ? $ledgerBalances[$acctId] : 0.0;
@@ -403,6 +410,7 @@ class BudgetService
                 'account_id' => $acctId,
                 'code' => $ledger ? $ledger->code : null,
                 'name' => $ledger ? $ledger->name : null,
+                'type' => $accountType,
                 'opening_balance' => $opening,
                 'budget_amount' => $budgetedSum,
                 'actual_amount' => $actual,
@@ -416,10 +424,34 @@ class BudgetService
             if ($opening !== null) {
                 $total_opening += $opening;
             }
+
+            if ($accountType === 'expense') {
+                $expense_budget += $budgetedSum;
+                $expense_actual += $actual;
+            } else {
+                $income_budget += $budgetedSum;
+                $income_actual += $actual;
+            }
         }
 
-        $variance = $total_actual - $total_budget;
-        $variance_percentage = $total_budget ? ($variance / $total_budget) * 100 : 0;
+        // Budget variance, kept as Actual - Budget for each side.
+        $income_variance = $income_actual - $income_budget;
+        $expense_variance = $expense_actual - $expense_budget;
+
+        // Surplus/(deficit) positions: Total Income - Total Expenses.
+        $budgeted_surplus = $income_budget - $expense_budget;
+        $actual_surplus = $income_actual - $expense_actual;
+
+        // Net budget variance = how the income/expense variances moved the surplus.
+        // With both variances as Actual - Budget this is income_variance - expense_variance,
+        // which also equals actual_surplus - budgeted_surplus.
+        $net_variance = $income_variance - $expense_variance;
+
+        // Legacy fields (kept for backwards compatibility). "variance" here is the
+        // net budget variance rather than a meaningless actual-minus-budget of mixed
+        // income and expense totals.
+        $variance = $net_variance;
+        $variance_percentage = $budgeted_surplus ? ($net_variance / abs($budgeted_surplus)) * 100 : 0;
 
         return [
             'budget_amount' => $total_budget,
@@ -427,6 +459,22 @@ class BudgetService
             'opening_balance' => $total_opening,
             'variance' => $variance,
             'variance_percentage' => $variance_percentage,
+            'income' => [
+                'budget' => $income_budget,
+                'actual' => $income_actual,
+                'variance' => $income_variance,
+                'variance_pct' => $income_budget ? ($income_variance / $income_budget) * 100 : null,
+            ],
+            'expense' => [
+                'budget' => $expense_budget,
+                'actual' => $expense_actual,
+                'variance' => $expense_variance,
+                'variance_pct' => $expense_budget ? ($expense_variance / $expense_budget) * 100 : null,
+            ],
+            'budgeted_surplus' => $budgeted_surplus,
+            'actual_surplus' => $actual_surplus,
+            'net_variance' => $net_variance,
+            'net_variance_favorability' => $net_variance > 0 ? 'favorable' : ($net_variance < 0 ? 'unfavorable' : 'neutral'),
             'currency' => $currency,
             'currency_symbol' => $this->getCurrencySymbol($currency),
             'accounts' => $accounts,
