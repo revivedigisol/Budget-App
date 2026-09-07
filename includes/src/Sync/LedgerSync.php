@@ -120,6 +120,12 @@ class LedgerSync {
                     . implode( ', ', $orphans )
                 );
             }
+
+            // Drop any cached ledger list so the Chart-of-Accounts screen picks
+            // up the new/renamed twins (mirrors LedgerDeleteBridge).
+            if ( $stats['created'] || $stats['renamed'] ) {
+                $this->purgeLedgerCache();
+            }
         } catch ( \Throwable $e ) {
             $stats['errors']++;
             error_log( '[erp-budgeting] ledger-sync failed for blog ' . $blog_id . ': ' . $e->getMessage() );
@@ -265,7 +271,10 @@ class LedgerSync {
                 'name'        => $this->clip( $this->twinName( $label, $src ) ),
                 'slug'        => $this->uniqueSlug( 'coa_' . $entity_code . '_' . $plain ),
                 'code'        => $code,
-                'unused'      => 0,
+                // WP ERP's own ledger list queries filter `WHERE unused IS NULL`
+                // (erp_acct_get_ledgers_with_balances / _by_chart_id) — a literal
+                // 0 here makes the twin real but invisible in the CoA screen.
+                'unused'      => null,
                 'system'      => 0,
                 'created_at'  => current_time( 'Y-m-d' ),
                 'created_by'  => (string) get_current_user_id(),
@@ -362,6 +371,13 @@ class LedgerSync {
         $text = (string) $text;
 
         return function_exists( 'mb_substr' ) ? mb_substr( $text, 0, 255 ) : substr( $text, 0, 255 );
+    }
+
+    /** Drop WP ERP's cached ledger list (best effort). */
+    private function purgeLedgerCache() {
+        if ( function_exists( 'erp_acct_purge_cache' ) ) {
+            erp_acct_purge_cache( [ 'list' => 'ledgers' ] );
+        }
     }
 
     private function blogHasLedgerTable( $blog_id ) {
