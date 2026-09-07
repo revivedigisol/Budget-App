@@ -7,137 +7,93 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Adds a "Delete" row action to WP ERP's Chart of Accounts ledger list.
+ * Gives WP ERP's Chart of Accounts screen a working "Delete" row action.
  *
- * WP ERP's CoA screen (the accounting SPA, hash route #/chart-of-accounts) only
- * renders an "Edit" action per ledger — its Vue component hard-codes
- * `actions: [{ key: 'edit' }]` and exposes no JS filter to extend it. Rather
- * than patch WP ERP's compiled bundle (which an update would overwrite), we
- * enqueue a small vanilla script on the accounting admin page that:
+ * WP ERP's CoA Vue component (`ChartAccounts`) hard-codes its row actions to
+ * `actions: [{ key: 'edit' }]` and exposes no filter — but its `onActionClick`
+ * handler *already* implements `case 'trash'` (confirm -> DELETE /ledgers/{id}
+ * -> refetch). The only thing missing is the menu entry.
  *
- *   - watches the CoA tables (MutationObserver) and appends a "Delete" <li> to
- *     each non-system ledger row's action menu (system rows render no menu, so
- *     they are skipped automatically),
- *   - reads the row's ledger id straight from its name-cell <router-link>
- *     (`#/ledgers/{id}`) — no extra request,
- *   - calls DELETE {rest}/accounting/v1/ledgers/{id} with erp_acct_var.rest.
+ * So this patches one string in WP ERP's compiled bundle
+ * (`modules/accounting/assets/js/admin.js`) to add the "Delete" entry, letting
+ * WP ERP's own tested delete path run. The patch is:
  *
- * Safety lives server-side in Sync\LedgerDeleteBridge: it 409s the delete if the
- * ledger (or its NN- twin / plain source) still has postings or opening
- * balances, and cascades to the peer otherwise. WP ERP's own delete endpoint
- * performs no checks at all, so that bridge is the real guard rail.
+ *   actions:[{key:"edit",label:__("Edit","erp")}],chartAccounts:[]
+ *      ->  actions:[{key:"edit",...},{key:"trash",label:__("Delete","erp")}],chartAccounts:[]
+ *
+ * A WP ERP update ships a fresh (unpatched) bundle, so we re-check and re-apply
+ * on every admin load — cheap: a marker check short-circuits once patched, and
+ * the file read only happens when the marker is absent. Same "patch alongside
+ * the vendor" spirit as Migration's ad-hoc ALTER TABLE calls.
+ *
+ * Server-side safety for the delete itself is Sync\LedgerDeleteBridge (WP ERP's
+ * own delete endpoint runs zero checks): it 409s if the ledger or its NN- twin /
+ * plain source still has postings or opening balances, and cascades to the peer
+ * otherwise. Consolidation twins carry `system = NULL` (see LedgerSync) so they
+ * get the action menu like any normal ledger.
  */
 class CoaDeleteButton {
 
+    const BUNDLE_REL = 'accounting/assets/js/admin.js';
+    const MARKER     = 'key:"trash",label:__("Delete","erp")}],chartAccounts:[]';
+    const FIND       = 'actions:[{key:"edit",label:__("Edit","erp")}],chartAccounts:[]';
+    const REPLACE    = 'actions:[{key:"edit",label:__("Edit","erp")},{key:"trash",label:__("Delete","erp")}],chartAccounts:[]';
+
     public function __construct() {
-        add_action( 'admin_enqueue_scripts', [ $this, 'enqueue' ] );
+        add_action( 'admin_init', [ $this, 'ensure_patched' ] );
     }
 
-    public function enqueue( $hook ) {
-        // WP ERP's accounting SPA always loads under ?page=erp-accounting.
-        if ( ( isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '' ) !== 'erp-accounting' ) {
+    public function ensure_patched() {
+        $file = $this->bundle_path();
+        if ( ! $file || ! is_readable( $file ) || ! is_writable( $file ) ) {
             return;
         }
 
-        if ( ! current_user_can( 'erp_ac_delete_account' ) && ! current_user_can( 'manage_options' ) ) {
+        // Cheap short-circuit: skip the read while the file is unchanged since we
+        // last saw it patched.
+        $stamp = (string) filemtime( $file ) . ':' . (string) filesize( $file );
+        if ( get_option( 'erp_budget_coa_delete_patch' ) === $stamp ) {
             return;
         }
 
-        // Empty registered script we can hang the inline code off; it must land
-        // in the footer, after WP ERP has printed `erp_acct_var`.
-        wp_register_script( 'erp-budgeting-coa-delete', false, [], '1.0.0', true );
-        wp_enqueue_script( 'erp-budgeting-coa-delete' );
-        wp_add_inline_script( 'erp-budgeting-coa-delete', $this->script() );
+        $js = file_get_contents( $file );
+        if ( false === $js ) {
+            return;
+        }
+
+        if ( false !== strpos( $js, self::MARKER ) ) {
+            update_option( 'erp_budget_coa_delete_patch', $stamp, false );
+            return;
+        }
+
+        if ( false === strpos( $js, self::FIND ) ) {
+            // WP ERP changed the bundle shape — nothing to do, log once.
+            error_log( '[erp-budgeting] CoА delete patch: anchor string not found in ' . $file );
+            return;
+        }
+
+        $patched = str_replace( self::FIND, self::REPLACE, $js );
+        if ( false === file_put_contents( $file, $patched ) ) {
+            error_log( '[erp-budgeting] CoA delete patch: could not write ' . $file );
+            return;
+        }
+
+        update_option(
+            'erp_budget_coa_delete_patch',
+            (string) filemtime( $file ) . ':' . (string) filesize( $file ),
+            false
+        );
+        error_log( '[erp-budgeting] CoA delete patch: applied to ' . $file );
     }
 
-    private function script() {
-        return <<<'JS'
-(function () {
-    if (typeof erp_acct_var === 'undefined' || !erp_acct_var.rest) { return; }
-
-    var REST  = erp_acct_var.rest.root + erp_acct_var.rest.version + '/accounting/v1';
-    var NONCE = erp_acct_var.rest.nonce;
-
-    function onCoaRoute() {
-        return (location.hash || '').indexOf('chart-of-accounts') !== -1;
-    }
-
-    function ledgerIdOf(tr) {
-        var link = tr.querySelector('td[data-colname="Ledger_name"] a[href], td.column-primary a[href]');
-        var m = link && (link.getAttribute('href') || '').match(/\/ledgers\/(\d+)/);
-        return m ? m[1] : null;
-    }
-
-    function ledgerLabelOf(tr) {
-        var cell = tr.querySelector('td.column-primary, td[data-colname="Code"]');
-        return cell ? (cell.textContent || '').replace(/\s+/g, ' ').trim() : '';
-    }
-
-    function del(id, label) {
-        if (!window.confirm('Delete ledger "' + label + '"?\nThis cannot be undone.')) { return; }
-        fetch(REST + '/ledgers/' + id, {
-            method: 'DELETE',
-            headers: { 'X-WP-Nonce': NONCE },
-            credentials: 'same-origin'
-        }).then(function (r) {
-            return r.text().then(function (t) {
-                var body = null;
-                try { body = JSON.parse(t); } catch (e) {}
-                return { ok: r.ok, status: r.status, body: body };
-            });
-        }).then(function (res) {
-            if (res.ok) {
-                window.location.reload();
-            } else {
-                var msg = (res.body && res.body.message) || ('HTTP ' + res.status);
-                window.alert('Could not delete "' + label + '": ' + msg);
+    /** Locate WP ERP's accounting admin bundle across its two possible folders. */
+    private function bundle_path() {
+        foreach ( [ 'erp/modules', 'wp-erp/modules' ] as $base ) {
+            $candidate = WP_PLUGIN_DIR . '/' . $base . '/' . self::BUNDLE_REL;
+            if ( file_exists( $candidate ) ) {
+                return $candidate;
             }
-        }).catch(function (e) {
-            window.alert('Could not delete "' + label + '": ' + e);
-        });
-    }
-
-    function decorate(menu) {
-        if (!menu.closest('.chart-list')) { return; }
-        if (menu.querySelector('li.erp-b-del')) { return; }
-
-        var tr = menu.closest('tr');
-        if (!tr) { return; }
-
-        var id = ledgerIdOf(tr);
-        if (!id) { return; }
-
-        var li = document.createElement('li');
-        li.className = 'trash erp-b-del';
-
-        var a = document.createElement('a');
-        a.href = '#';
-        a.textContent = 'Delete';
-        a.addEventListener('click', function (ev) {
-            ev.preventDefault();
-            ev.stopPropagation();
-            del(id, ledgerLabelOf(tr));
-        });
-
-        li.appendChild(a);
-        menu.appendChild(li);
-    }
-
-    function scan() {
-        if (!onCoaRoute()) { return; }
-        document.querySelectorAll('.chart-list ul[role="menu"]').forEach(decorate);
-    }
-
-    var pending = false;
-    var observer = new MutationObserver(function () {
-        if (pending) { return; }
-        pending = true;
-        window.requestAnimationFrame(function () { pending = false; scan(); });
-    });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('hashchange', scan);
-    scan();
-})();
-JS;
+        }
+        return null;
     }
 }

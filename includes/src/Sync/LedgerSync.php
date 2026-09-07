@@ -271,11 +271,12 @@ class LedgerSync {
                 'name'        => $this->clip( $this->twinName( $label, $src ) ),
                 'slug'        => $this->uniqueSlug( 'coa_' . $entity_code . '_' . $plain ),
                 'code'        => $code,
-                // WP ERP's own ledger list queries filter `WHERE unused IS NULL`
-                // (erp_acct_get_ledgers_with_balances / _by_chart_id) — a literal
-                // 0 here makes the twin real but invisible in the CoA screen.
+                // Both columns must be NULL, not 0: WP ERP's ledger list queries
+                // filter `WHERE unused IS NULL` (a 0 hides the twin entirely), and
+                // its CoA screen shows the row-action menu only when `system IS
+                // NULL` (any non-null value renders a locked "System" row).
                 'unused'      => null,
-                'system'      => 0,
+                'system'      => null,
                 'created_at'  => current_time( 'Y-m-d' ),
                 'created_by'  => (string) get_current_user_id(),
             ]
