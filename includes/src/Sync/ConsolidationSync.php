@@ -8,9 +8,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * One-way roll-up: mirror every subsite's GL postings into the Holding site
+ * One-way roll-up: mirror every entity's GL postings into the Holding site
  * (blog 1) so blog 1's WP ERP books become a live consolidation of all
- * entities.
+ * entities. Holding (entity 01) is included and consolidates into its own
+ * books — its postings are re-written against the "01-" twin ledgers, so the
+ * full "NN-" consolidation chart carries actuals. Holding's own mirror rows
+ * live above SYNTHETIC_TRN_BASE and are excluded from the source read, so a
+ * sweep never re-mirrors what it just wrote. Consumers of the consolidated
+ * view should scope to "NN-" prefixed ledgers; the un-prefixed ledgers remain
+ * Holding's raw input books and would otherwise be counted twice.
  *
  * Unit of sync = one source `trn_no` (voucher). Its rows are read straight
  * from `{blog}_erp_acct_ledger_details`, each source ledger is remapped to its
@@ -32,6 +38,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ConsolidationSync {
     const LOCK_TRANSIENT = 'erp_budget_consolidation_lock';
 
+    /**
+     * Synthetic trn_no = source_blog * this + source_trn_no. Real WP ERP
+     * voucher numbers are far below it, so it doubles as the cutoff that keeps
+     * the Holding blog from re-mirroring its own mirror rows when Holding
+     * consolidates into itself (entity 01).
+     */
+    const SYNTHETIC_TRN_BASE = 1000000;
+
     /** Voucher types that must NOT be mirrored (they would double-count on blog 1). */
     private function skippedTypes() {
         return (array) apply_filters( 'erp_budget_sync_skipped_types', [ 'opening_balance' ] );
@@ -42,7 +56,7 @@ class ConsolidationSync {
     /* ------------------------------------------------------------------ */
 
     /**
-     * Sweep every mapped subsite.
+     * Sweep every mapped entity (Holding included).
      *
      * @return array<int|string,mixed> per-blog summary, or [ 'locked' => true ].
      */
@@ -58,7 +72,9 @@ class ConsolidationSync {
 
         $summary = [];
         try {
-            foreach ( EntityMap::sourceBlogIds() as $blog_id ) {
+            // Every mapped entity, Holding (01) included: it consolidates into
+            // its own books so the whole "NN-" chart carries actuals.
+            foreach ( array_keys( EntityMap::all() ) as $blog_id ) {
                 $summary[ $blog_id ] = $this->runBlog( $blog_id );
             }
         } finally {
@@ -69,7 +85,7 @@ class ConsolidationSync {
     }
 
     /**
-     * Sync a single subsite.
+     * Sync a single entity (a subsite, or Holding into its own "01-" twins).
      *
      * @return array{synced:int,blocked:int,voided:int,skipped:int,errors:int,unchanged:int}
      */
@@ -82,12 +98,17 @@ class ConsolidationSync {
         }
 
         $entity_code = EntityMap::codeFor( $blog_id );
-        if ( null === $entity_code || EntityMap::isHolding( $blog_id ) ) {
+        if ( null === $entity_code ) {
             return $stats;
         }
         if ( ! $this->blogHasErpTables( $blog_id ) ) {
             return $stats;
         }
+
+        // Ensure every active source ledger has a Holding twin before we try to
+        // mirror postings — otherwise this run would just "block" transactions
+        // on ledgers that were created since the last sweep.
+        ( new LedgerSync() )->runBlog( $blog_id );
 
         $resolver = new LedgerResolver();
         $lookback = max( 0, (int) apply_filters( 'erp_budget_sync_lookback_days', 0 ) );
@@ -159,10 +180,15 @@ class ConsolidationSync {
         global $wpdb;
         $p = $wpdb->prefix;
 
-        $where = '';
+        // Never treat a mirror row as a source transaction — matters when the
+        // Holding blog consolidates into itself (its own "NN-" mirror rows all
+        // sit above SYNTHETIC_TRN_BASE). Harmless for subsites (their books
+        // never hold synthetic rows).
+        $conds = [ $wpdb->prepare( 'd.trn_no < %d', self::SYNTHETIC_TRN_BASE ) ];
         if ( $lookback > 0 ) {
-            $where = $wpdb->prepare( 'WHERE d.trn_date >= DATE_SUB(CURDATE(), INTERVAL %d DAY)', $lookback );
+            $conds[] = $wpdb->prepare( 'd.trn_date >= DATE_SUB(CURDATE(), INTERVAL %d DAY)', $lookback );
         }
+        $where = 'WHERE ' . implode( ' AND ', $conds );
 
         $rows = $wpdb->get_results(
             "SELECT d.id, d.trn_no, d.ledger_id, d.particulars, d.debit, d.credit, d.trn_date,
@@ -298,7 +324,7 @@ class ConsolidationSync {
 
     /** Deterministic, collision-free trn_no for a mirrored source voucher. */
     private function syntheticTrnNo( $blog_id, $source_trn_no ) {
-        return ( (int) $blog_id * 1000000 ) + (int) $source_trn_no;
+        return ( (int) $blog_id * self::SYNTHETIC_TRN_BASE ) + (int) $source_trn_no;
     }
 
     private function tag( $entity_code, $trn_no ) {

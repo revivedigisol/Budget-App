@@ -9,7 +9,8 @@ if ( ! defined( 'ABSPATH' ) ) {
  * REST surface for the consolidation sync (namespace erp/v1, gated on
  * manage_erp_budgets like the rest of the plugin).
  *
- *   POST /erp/v1/consolidation/sync           { blog_id? }  -> run sweep
+ *   POST /erp/v1/consolidation/sync           { blog_id? }  -> run sweep (ledgers + postings)
+ *   POST /erp/v1/consolidation/sync-ledgers   { blog_id? }  -> mirror chart of accounts only
  *   GET  /erp/v1/consolidation/status                       -> map-map counts + blocked list
  *   GET  /erp/v1/consolidation/entity-map                   -> blog_id => "NN"
  *   POST /erp/v1/consolidation/entity-map     { "2":"02" }  -> replace map
@@ -27,6 +28,15 @@ class SyncRestController {
         register_rest_route( 'erp/v1', '/consolidation/sync', [
             'methods'             => 'POST',
             'callback'            => [ $this, 'sync' ],
+            'permission_callback' => [ $this, 'permissionsCheck' ],
+            'args'                => [
+                'blog_id' => [ 'validate_callback' => function ( $v ) { return is_numeric( $v ); } ],
+            ],
+        ] );
+
+        register_rest_route( 'erp/v1', '/consolidation/sync-ledgers', [
+            'methods'             => 'POST',
+            'callback'            => [ $this, 'syncLedgers' ],
             'permission_callback' => [ $this, 'permissionsCheck' ],
             'args'                => [
                 'blog_id' => [ 'validate_callback' => function ( $v ) { return is_numeric( $v ); } ],
@@ -55,6 +65,17 @@ class SyncRestController {
 
     public function sync( $request ) {
         $sync    = new ConsolidationSync();
+        $blog_id = $request->get_param( 'blog_id' );
+
+        $result = $blog_id
+            ? [ (int) $blog_id => $sync->runBlog( (int) $blog_id ) ]
+            : $sync->runAll();
+
+        return rest_ensure_response( [ 'ok' => true, 'result' => $result ] );
+    }
+
+    public function syncLedgers( $request ) {
+        $sync    = new LedgerSync();
         $blog_id = $request->get_param( 'blog_id' );
 
         $result = $blog_id

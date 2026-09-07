@@ -44,7 +44,8 @@ class SyncListener {
     public function nudge() {
         $blog_id = get_current_blog_id();
 
-        if ( EntityMap::isHolding( $blog_id ) || null === EntityMap::codeFor( $blog_id ) ) {
+        // Holding included — it consolidates its own postings into "01-" twins.
+        if ( null === EntityMap::codeFor( $blog_id ) ) {
             return;
         }
 

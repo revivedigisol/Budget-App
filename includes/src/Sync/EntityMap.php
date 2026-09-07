@@ -67,6 +67,19 @@ class EntityMap {
         return isset( $map[ (int) $blog_id ] ) ? $map[ (int) $blog_id ] : null;
     }
 
+    /** Blog id for an entity code ("09" -> 22), or null when unknown. */
+    public static function blogForCode( $code ) {
+        $code = str_pad( preg_replace( '/\D/', '', (string) $code ), 2, '0', STR_PAD_LEFT );
+
+        foreach ( self::all() as $blog_id => $entity ) {
+            if ( $entity === $code ) {
+                return (int) $blog_id;
+            }
+        }
+
+        return null;
+    }
+
     /** Blog ids feeding the consolidation (everything mapped except the holding root). */
     public static function sourceBlogIds() {
         return array_values( array_diff( array_keys( self::all() ), [ self::HOLDING_BLOG_ID ] ) );

@@ -9,6 +9,7 @@ use Enle\ERP\Budgeting\Admin\Menu;
 use Enle\ERP\Budgeting\Sync\SyncListener;
 use Enle\ERP\Budgeting\Sync\SyncCron;
 use Enle\ERP\Budgeting\Sync\SyncRestController;
+use Enle\ERP\Budgeting\Sync\LedgerDeleteBridge;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -46,5 +47,8 @@ add_action( 'plugins_loaded', function() {
     }
     if ( class_exists( SyncCron::class ) ) {
         new SyncCron();
+    }
+    if ( class_exists( LedgerDeleteBridge::class ) ) {
+        new LedgerDeleteBridge();
     }
 });
