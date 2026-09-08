@@ -6,99 +6,82 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Keep the consolidation chart in step when a ledger is deleted through WP
- * ERP's own Chart of Accounts screen.
+ * Owns `DELETE /erp/v1/accounting/v1/ledgers/{id}` for the consolidation network.
  *
- * WP ERP's `DELETE /erp/v1/accounting/v1/ledgers/{id}` fires no action hook, so
- * this rides the generic REST dispatch filters:
+ * Two reasons this route is taken over rather than merely observed:
  *
- *   - `rest_request_before_callbacks` — the ledger row still exists: read its
- *     code, work out the peer ledger(s), and REFUSE the whole delete (returning
- *     a WP_Error also stops WP ERP's own delete) if the ledger or any peer has
- *     transactions. Nothing is half-deleted.
- *   - `rest_request_after_callbacks` — WP ERP's delete succeeded: delete the
- *     peer(s) directly via $wpdb (not REST, so this does not recurse).
+ *  1. WP ERP's own `LedgersAccountsController::delete_ledger_account()` is broken
+ *     — after deleting the row it calls `add_log( $item, 'delete' )` with the
+ *     stdClass from `erp_acct_get_ledger()`, and `add_log()` does `$data['name']`
+ *     / `$data['people_id']` (array access on an object) → a PHP fatal. The row
+ *     is already gone, but the request 500s, so the caller never sees success
+ *     and no peer cascade can run. Nothing in WP ERP's CoA UI exposed a delete
+ *     button, so the bug sat dormant until `Admin\CoaDeleteButton` surfaced one.
+ *  2. WP ERP fires no hook on ledger delete, and runs zero safety checks.
  *
- * Peer rules (mirror LedgerSync's twin convention):
+ * So this hooks `rest_dispatch_request` (which short-circuits the route callback
+ * when it returns non-null — `rest_request_before_callbacks` does not) and does
+ * the whole thing itself, after WP ERP's route `permission_callback` has already
+ * authorised the request:
  *
- *   delete plain `1341` in Water (09)      -> delete twin `09-1341` on Holding
- *   delete twin `09-1341` on Holding       -> delete plain `1341` in Water
- *   delete plain `1211` on Holding (01)    -> delete twin `01-1211` on Holding
- *   delete twin `01-1211` on Holding       -> delete plain `1211` on Holding
+ *   - block the delete (409, nothing removed) if the ledger — or a peer — still
+ *     has `erp_acct_ledger_details` / `erp_acct_opening_balances` rows;
+ *   - delete the ledger row;
+ *   - delete the peer ledger(s), mirroring LedgerSync's twin convention:
  *
- * A missing peer is fine (no twin yet) — it just means nothing to do.
+ *       delete plain `1341` in Water (09)   -> delete twin `09-1341` on Holding
+ *       delete twin `09-1341` on Holding    -> delete plain `1341` in Water
+ *       delete plain `1211` on Holding (01) -> delete twin `01-1211` on Holding
+ *       delete twin `01-1211` on Holding    -> delete plain `1211` on Holding
+ *
+ *   - purge WP ERP's ledger cache and return `204`.
+ *
+ * The `erp_budget_sync_propagate_ledger_delete` filter (default true) governs
+ * only the peer cascade + the peer-postings block; the local delete still runs
+ * either way, because WP ERP's path is unusable. A missing peer is fine.
  */
 class LedgerDeleteBridge {
     const ROUTE_RE = '#^/erp/v1/accounting/v1/ledgers/(?P<id>\d+)$#';
-
-    /** @var array|null captured between the before/after filters for one request */
-    private $pending = null;
 
     public function __construct() {
         if ( ! is_multisite() ) {
             return;
         }
 
-        add_filter( 'rest_request_before_callbacks', [ $this, 'beforeDelete' ], 10, 3 );
-        add_filter( 'rest_request_after_callbacks', [ $this, 'afterDelete' ], 10, 3 );
+        add_filter( 'rest_dispatch_request', [ $this, 'dispatchDelete' ], 10, 4 );
     }
 
     /* ------------------------------------------------------------------ */
 
     /**
-     * @param mixed            $response
-     * @param array            $handler
+     * @param mixed            $dispatch_result null until something handles it
      * @param \WP_REST_Request $request
-     * @return mixed WP_Error to block the delete, otherwise $response untouched.
+     * @param string           $route
+     * @param array            $handler
+     * @return mixed WP_REST_Response|WP_Error to handle it here, else $dispatch_result
      */
-    public function beforeDelete( $response, $handler, $request ) {
-        if ( is_wp_error( $response ) || ! $this->isLedgerDelete( $request ) ) {
-            return $response;
-        }
-        if ( ! apply_filters( 'erp_budget_sync_propagate_ledger_delete', true ) ) {
-            return $response;
+    public function dispatchDelete( $dispatch_result, $request, $route, $handler ) {
+        if ( null !== $dispatch_result || ! $this->isLedgerDelete( $request ) ) {
+            return $dispatch_result;
         }
 
-        // Let WP ERP's own permission_callback handle rejection; don't do work
-        // for a request that is about to be denied (filter order varies by WP).
-        if ( ! current_user_can( 'erp_ac_delete_account' ) ) {
-            return $response;
-        }
+        $blog_id = (int) get_current_blog_id();
 
-        $blog_id = get_current_blog_id();
-        if ( null === EntityMap::codeFor( $blog_id ) ) {
-            return $response; // this blog is not part of the consolidation
-        }
+        // Peer cascade only applies to blogs that are part of the consolidation;
+        // the local delete is taken over regardless, because WP ERP's own delete
+        // callback fatals on every site (see class docblock).
+        $propagate = ( null !== EntityMap::codeFor( $blog_id ) )
+            && (bool) apply_filters( 'erp_budget_sync_propagate_ledger_delete', true );
 
-        $plan = $this->planDeletion( $blog_id, (int) $request['id'] );
+        $plan = $this->planDeletion( $blog_id, (int) $request['id'], $propagate );
         if ( is_wp_error( $plan ) ) {
-            return $plan; // aborts WP ERP's delete as well — nothing is removed
+            return $plan;
         }
 
-        $this->pending = $plan;
+        // Delete the ledger the request targets.
+        $this->deleteLedgerRow( $blog_id, (int) $request['id'] );
 
-        return $response;
-    }
-
-    /**
-     * @param \WP_REST_Response|\WP_Error $response
-     * @param array                      $handler
-     * @param \WP_REST_Request           $request
-     * @return mixed $response untouched
-     */
-    public function afterDelete( $response, $handler, $request ) {
-        $plan          = $this->pending;
-        $this->pending = null;
-
-        if ( null === $plan || ! $this->isLedgerDelete( $request ) || is_wp_error( $response ) ) {
-            return $response;
-        }
-
-        $status = ( $response instanceof \WP_REST_Response ) ? $response->get_status() : 0;
-        if ( $status < 200 || $status >= 300 ) {
-            return $response; // WP ERP's delete did not actually succeed
-        }
-
+        // Delete its peer(s).
         foreach ( $plan as $t ) {
             $this->deleteLedgerRow( $t['blog'], $t['ledger_id'] );
             error_log( sprintf(
@@ -109,7 +92,7 @@ class LedgerDeleteBridge {
             ) );
         }
 
-        return $response;
+        return new \WP_REST_Response( true, 204 );
     }
 
     /* ------------------------------------------------------------------ */
@@ -120,12 +103,13 @@ class LedgerDeleteBridge {
     }
 
     /**
-     * Decide what else must be deleted, and block early if anything involved
-     * still carries transactions.
+     * Decide what else must be deleted, and block early (409) if anything
+     * involved still carries transactions.
      *
+     * @param bool $propagate whether to look at / block on / cascade to peers
      * @return array<int,array{blog:int,ledger_id:int,label:string}>|\WP_Error
      */
-    private function planDeletion( $blog_id, $ledger_id ) {
+    private function planDeletion( $blog_id, $ledger_id, $propagate ) {
         global $wpdb;
 
         $ledger = $wpdb->get_row( $wpdb->prepare(
@@ -133,7 +117,7 @@ class LedgerDeleteBridge {
             $ledger_id
         ) );
         if ( ! $ledger ) {
-            return []; // let WP ERP return its own 404
+            return new \WP_Error( 'rest_ledger_invalid_id', __( 'Invalid resource id.', 'erp' ), [ 'status' => 404 ] );
         }
 
         $code       = trim( (string) $ledger->code );
@@ -144,10 +128,12 @@ class LedgerDeleteBridge {
             return $this->blocked( $this_label, $blog_id );
         }
 
-        $peers = $this->peerCodes( $blog_id, $code ); // [ [blog, code], ... ]
+        if ( ! $propagate ) {
+            return [];
+        }
 
         $targets = [];
-        foreach ( $peers as $peer ) {
+        foreach ( $this->peerCodes( $blog_id, $code ) as $peer ) {
             list( $peer_blog, $peer_code ) = $peer;
 
             $found = $this->findLedger( $peer_blog, $peer_code );
