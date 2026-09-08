@@ -17,9 +17,19 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   PUT   /erp/v1/accounting/v1/ledgers/{id}      (rename / edit)
  *   PATCH /erp/v1/accounting/v1/ledgers/{id}
  *
- * it schedules a ~1-minute single-blog `LedgerSync::runBlog()` for the blog the
- * request ran on (Holding included — it mirrors its own chart into "01-" twins).
- * That is the same "nudge, don't sync inline" shape as SyncListener.
+ * it runs a single-blog `LedgerSync::runBlog()` for the blog the request ran on
+ * (Holding included — it mirrors its own chart into "01-" twins) **inline, in the
+ * same request**, before the REST response is returned.
+ *
+ * Inline (not a cron nudge) on purpose: WP ERP's Chart-of-Accounts screen calls
+ * `window.location.reload()` the instant a ledger is created/renamed, and its
+ * ledger list is a page-load PHP blob (`erp_acct_var.ledgers` <-
+ * `erp_acct_get_ledgers_with_balances()`, uncached). If the twin is created a
+ * minute later by WP-Cron the user reloads into a list that doesn't have it yet
+ * and thinks the sync is broken. A single-blog reconcile is a couple of small
+ * SELECTs plus at most one INSERT (~50ms measured on the live Holding chart), so
+ * it is cheap enough to do synchronously. If it throws, we fall back to the old
+ * ~1-minute cron nudge so the twin still lands.
  *
  * SyncCron's hourly sweep stays the authoritative catch-all for ledgers created
  * some other way (CSV import, WP-CLI, direct SQL) where no REST request fires.
@@ -59,12 +69,20 @@ class LedgerWriteBridge {
             return $response; // the create/update did not actually succeed
         }
 
-        $blog_id = get_current_blog_id();
+        $blog_id = (int) get_current_blog_id();
         if ( null === EntityMap::codeFor( $blog_id ) ) {
             return $response; // this blog is not part of the consolidation
         }
 
-        $this->nudge( (int) $blog_id );
+        // Create/rename the twin now, in this request, so WP ERP's own
+        // post-save `window.location.reload()` lands on a ledger list that
+        // already contains it. Fall back to the cron nudge only on failure.
+        try {
+            ( new LedgerSync() )->runBlog( $blog_id );
+        } catch ( \Throwable $e ) {
+            error_log( '[erp-budgeting] ledger-write bridge: inline sync failed for blog ' . $blog_id . ': ' . $e->getMessage() );
+            $this->nudge( $blog_id );
+        }
 
         return $response;
     }
