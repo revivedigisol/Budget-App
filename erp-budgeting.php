@@ -5,7 +5,7 @@
  * Version: 1.0.0
  * Author: Enle
  * Author URI: https://enle.org
- * Text Domain: erp-budgeting
+ * Text Domain: accounting-extension
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
