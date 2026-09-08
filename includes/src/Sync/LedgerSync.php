@@ -24,6 +24,9 @@ if ( ! defined( 'ABSPATH' ) ) {
  *   - source ledger renamed             -> rename the twin
  *   - source ledger deleted             -> twin is KEPT (it may hold mirrored
  *                                          history) and reported as an orphan
+ *                                          (orphan check skipped for Holding's
+ *                                          own chart — its un-prefixed source
+ *                                          ledgers are deleted by design)
  *   - source ledger archived (unused=1) -> not mirrored; existing twin kept
  *
  * The twin's identity is its `code` (`NN-<plain code>`); existence is the only
@@ -107,18 +110,24 @@ class LedgerSync {
             }
 
             // ---- 3. twins whose source ledger is gone -----------------
-            $orphans = [];
-            foreach ( $twins as $plain => $row ) {
-                if ( ! isset( $present[ $plain ] ) && ! $this->isArchivedInSource( $blog_id, $plain ) ) {
-                    $orphans[] = $entity_code . '-' . $plain;
+            // Skipped for Holding's own chart: under the "post straight onto the
+            // 01- twins" workflow (ConsolidationSync no longer mirrors Holding
+            // into itself) the un-prefixed source ledger is deleted on purpose,
+            // so every 01- twin would report as an orphan and flood the log.
+            if ( ! EntityMap::isHolding( $blog_id ) ) {
+                $orphans = [];
+                foreach ( $twins as $plain => $row ) {
+                    if ( ! isset( $present[ $plain ] ) && ! $this->isArchivedInSource( $blog_id, $plain ) ) {
+                        $orphans[] = $entity_code . '-' . $plain;
+                    }
                 }
-            }
-            if ( $orphans ) {
-                $stats['orphans'] = count( $orphans );
-                error_log(
-                    '[erp-budgeting] ledger-sync: orphan twins on Holding (source ledger deleted, twin kept): '
-                    . implode( ', ', $orphans )
-                );
+                if ( $orphans ) {
+                    $stats['orphans'] = count( $orphans );
+                    error_log(
+                        '[erp-budgeting] ledger-sync: orphan twins on Holding (source ledger deleted, twin kept): '
+                        . implode( ', ', $orphans )
+                    );
+                }
             }
 
             // Drop any cached ledger list so the Chart-of-Accounts screen picks

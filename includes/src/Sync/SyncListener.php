@@ -44,7 +44,8 @@ class SyncListener {
     public function nudge() {
         $blog_id = get_current_blog_id();
 
-        // Holding included — it consolidates its own postings into "01-" twins.
+        // Holding is mapped but ConsolidationSync::runBlog() returns early for it
+        // (LedgerSync only) — see that class. A nudge here is cheap and harmless.
         if ( null === EntityMap::codeFor( $blog_id ) ) {
             return;
         }

@@ -8,15 +8,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * One-way roll-up: mirror every entity's GL postings into the Holding site
+ * One-way roll-up: mirror every subsite's GL postings into the Holding site
  * (blog 1) so blog 1's WP ERP books become a live consolidation of all
- * entities. Holding (entity 01) is included and consolidates into its own
- * books — its postings are re-written against the "01-" twin ledgers, so the
- * full "NN-" consolidation chart carries actuals. Holding's own mirror rows
- * live above SYNTHETIC_TRN_BASE and are excluded from the source read, so a
- * sweep never re-mirrors what it just wrote. Consumers of the consolidated
- * view should scope to "NN-" prefixed ledgers; the un-prefixed ledgers remain
- * Holding's raw input books and would otherwise be counted twice.
+ * entities. Consumers of the consolidated view scope to "NN-" prefixed ledgers.
+ *
+ * Holding (entity 01) is NOT consolidated into its own books: its staff post
+ * Holding's own journals straight onto the "01-" twin ledgers, so those accounts
+ * already carry Holding's actuals natively and mirroring them would only try to
+ * remap "01-5020" -> "01-01-5020" and block every voucher. `runBlog()` therefore
+ * returns early for the Holding blog (after keeping its "01-" chart in sync via
+ * LedgerSync). Set the `erp_budget_consolidate_holding_into_self` filter to true
+ * to restore self-consolidation — but then Holding staff must post to the
+ * un-prefixed ledgers, or the "01-" figures are counted twice.
+ *
+ * A mirror row's synthetic trn_no lives above SYNTHETIC_TRN_BASE and is excluded
+ * from every source read, so a sweep never re-mirrors what it just wrote.
  *
  * Unit of sync = one source `trn_no` (voucher). Its rows are read straight
  * from `{blog}_erp_acct_ledger_details`, each source ledger is remapped to its
@@ -56,7 +62,8 @@ class ConsolidationSync {
     /* ------------------------------------------------------------------ */
 
     /**
-     * Sweep every mapped entity (Holding included).
+     * Sweep every mapped entity. Holding is looped too but `runBlog()` returns
+     * early for it (LedgerSync only) unless self-consolidation is filtered on.
      *
      * @return array<int|string,mixed> per-blog summary, or [ 'locked' => true ].
      */
@@ -72,8 +79,6 @@ class ConsolidationSync {
 
         $summary = [];
         try {
-            // Every mapped entity, Holding (01) included: it consolidates into
-            // its own books so the whole "NN-" chart carries actuals.
             foreach ( array_keys( EntityMap::all() ) as $blog_id ) {
                 $summary[ $blog_id ] = $this->runBlog( $blog_id );
             }
@@ -85,7 +90,9 @@ class ConsolidationSync {
     }
 
     /**
-     * Sync a single entity (a subsite, or Holding into its own "01-" twins).
+     * Sync a single subsite's postings into the Holding "NN-" chart. For the
+     * Holding blog itself this only refreshes the "01-" twin chart (LedgerSync)
+     * and then returns — see the class docblock.
      *
      * @return array{synced:int,blocked:int,voided:int,skipped:int,errors:int,unchanged:int}
      */
@@ -109,6 +116,13 @@ class ConsolidationSync {
         // mirror postings — otherwise this run would just "block" transactions
         // on ledgers that were created since the last sweep.
         ( new LedgerSync() )->runBlog( $blog_id );
+
+        // Holding is not consolidated into itself — see the class docblock. The
+        // LedgerSync call above still keeps the "01-" chart current.
+        if ( EntityMap::isHolding( $blog_id )
+            && ! apply_filters( 'erp_budget_consolidate_holding_into_self', false ) ) {
+            return $stats;
+        }
 
         $resolver = new LedgerResolver();
         $lookback = max( 0, (int) apply_filters( 'erp_budget_sync_lookback_days', 0 ) );
