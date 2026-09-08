@@ -33,6 +33,11 @@ if ( ! defined( 'ABSPATH' ) ) {
  *
  * SyncCron's hourly sweep stays the authoritative catch-all for ledgers created
  * some other way (CSV import, WP-CLI, direct SQL) where no REST request fires.
+ *
+ * On a *create* on the Holding blog it also drops the just-made un-prefixed
+ * ledger once its "01-" twin exists (Holding books straight into the twins — see
+ * ConsolidationSync), so the Chart of Accounts shows one row, not two. Reversible
+ * with the `erp_budget_consolidate_holding_into_self` filter.
  */
 class LedgerWriteBridge {
     const SINGLE_EVENT = 'erp_budget_ledger_sync_blog_event';
@@ -82,9 +87,69 @@ class LedgerWriteBridge {
         } catch ( \Throwable $e ) {
             error_log( '[erp-budgeting] ledger-write bridge: inline sync failed for blog ' . $blog_id . ': ' . $e->getMessage() );
             $this->nudge( $blog_id );
+
+            return $response;
+        }
+
+        // On Holding, under the "post straight onto the 01- twins" model, the
+        // un-prefixed ledger the user just created is redundant the moment its
+        // 01- twin exists — drop it so the Chart of Accounts shows one row, not
+        // two. Only for a fresh create, and reversible via the same filter that
+        // controls Holding self-consolidation.
+        if ( 'POST' === $request->get_method()
+            && EntityMap::isHolding( $blog_id )
+            && ! apply_filters( 'erp_budget_consolidate_holding_into_self', false ) ) {
+            $this->dropRedundantHoldingSource( $response );
         }
 
         return $response;
+    }
+
+    /**
+     * Remove the un-prefixed Holding ledger a create request just made, once its
+     * "01-" twin is in place. No-ops if the twin isn't there, if the code was
+     * typed twin-shaped on purpose, or if the ledger somehow already has rows.
+     */
+    private function dropRedundantHoldingSource( $response ) {
+        global $wpdb;
+
+        $data = ( $response instanceof \WP_REST_Response ) ? $response->get_data() : null;
+        if ( ! is_array( $data ) || empty( $data['id'] ) || empty( $data['code'] ) ) {
+            return;
+        }
+
+        $id   = (int) $data['id'];
+        $code = trim( (string) $data['code'] );
+        if ( '' === $code || preg_match( '/^\d{2}-/', $code ) ) {
+            return; // user deliberately created a twin-shaped code — leave it
+        }
+
+        $twin = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$wpdb->prefix}erp_acct_ledgers WHERE code = %s",
+            '01-' . $code
+        ) );
+        if ( ! $twin ) {
+            return; // twin creation must have been skipped — keep the source
+        }
+
+        $used = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$wpdb->prefix}erp_acct_ledger_details WHERE ledger_id = %d",
+            $id
+        ) );
+        if ( $used > 0 ) {
+            return;
+        }
+
+        $wpdb->delete( "{$wpdb->prefix}erp_acct_ledgers", [ 'id' => $id ], [ '%d' ] );
+        if ( function_exists( 'erp_acct_purge_cache' ) ) {
+            erp_acct_purge_cache( [ 'list' => 'ledgers' ] );
+        }
+        error_log( sprintf(
+            '[erp-budgeting] ledger-write bridge: dropped redundant Holding source ledger %s (id %d) — consolidation uses 01-%s',
+            $code,
+            $id,
+            $code
+        ) );
     }
 
     /** Schedule a single-blog ledger reconcile if one isn't already pending. */
