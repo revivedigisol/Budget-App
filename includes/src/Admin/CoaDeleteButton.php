@@ -36,6 +36,9 @@ class CoaDeleteButton {
 
     const BUNDLE_REL   = 'accounting/assets/js/admin.js';
     const STAMP_OPTION = 'erp_budget_coa_delete_patch';
+    // Bump when patches()/regex_patches() change so an install that already
+    // stamped an earlier patch set re-evaluates the (possibly updated) bundle.
+    const PATCH_VERSION = 2;
 
     /** find => replace. Each `find` must be byte-unique in the bundle. */
     private function patches() {
@@ -43,10 +46,29 @@ class CoaDeleteButton {
             // 1. expose the Delete action on CoA rows
             'actions:[{key:"edit",label:__("Edit","erp")}],chartAccounts:[]'
                 => 'actions:[{key:"edit",label:__("Edit","erp")},{key:"trash",label:__("Delete","erp")}],chartAccounts:[]',
+        ];
+    }
 
-            // 2. reload after delete so the ledger list actually updates
-            'r.a.delete("/ledgers/".concat(e.id)).then(function(t){s.fetchChartAccounts(),s.$store.dispatch("spinner/setSpinner",!1)})'
-                => 'r.a.delete("/ledgers/".concat(e.id)).then(function(t){window.location.reload()})',
+    /**
+     * regex find => replace for anchors whose exact text drifts between WP ERP
+     * builds (minifier local-variable names in particular).
+     *
+     * 2. Reload the CoA page after a successful ledger delete. WP ERP's own
+     *    handler only calls `fetchChartAccounts()`, which re-pulls the
+     *    chart-class headers but not the ledger rows (those come from a
+     *    page-load `erp_acct_var.ledgers` blob), so the deleted row lingers
+     *    until a manual refresh. The `.then()` runs only on success, so a
+     *    blocked delete (409 from LedgerDeleteBridge) still surfaces its error
+     *    via WP ERP's `.catch` and leaves the row in place.
+     *
+     * The minifier names the axios module ref differently across builds
+     * (`n.a.delete` in 1.17.x, `r.a.delete` elsewhere), hence the `\w` capture.
+     * The success callback body contains no `}` so `[^}]*` is a safe bound.
+     */
+    private function regex_patches() {
+        return [
+            '#(\w)\.a\.delete\("/ledgers/"\.concat\(e\.id\)\)\.then\(function\(t\)\{[^}]*\}\)#'
+                => '$1.a.delete("/ledgers/".concat(e.id)).then(function(t){window.location.reload()})',
         ];
     }
 
@@ -60,7 +82,7 @@ class CoaDeleteButton {
             return;
         }
 
-        $stamp = filemtime( $file ) . ':' . filesize( $file );
+        $stamp = self::PATCH_VERSION . '|' . filemtime( $file ) . ':' . filesize( $file );
         if ( get_option( self::STAMP_OPTION ) === $stamp ) {
             return;
         }
@@ -82,6 +104,23 @@ class CoaDeleteButton {
             $js = str_replace( $find, $replace, $js );
         }
 
+        foreach ( $this->regex_patches() as $pattern => $replace ) {
+            // idempotent: our replacement always contains this literal.
+            if ( false !== strpos( $js, 'concat(e.id)).then(function(t){window.location.reload()})' ) ) {
+                continue;
+            }
+            $patched = preg_replace( $pattern, $replace, $js, -1, $count );
+            if ( null === $patched ) {
+                error_log( '[erp-budgeting] CoA delete patch: preg_replace error for ' . $pattern . ' in ' . $file );
+                continue;
+            }
+            if ( 0 === $count ) {
+                error_log( '[erp-budgeting] CoA delete patch: regex anchor not found (' . $pattern . ') in ' . $file );
+                continue;
+            }
+            $js = $patched;
+        }
+
         if ( $js === $original ) {
             // Nothing to do (all present, or no anchors matched). Stamp anyway so
             // we don't re-read every request until the file changes again.
@@ -98,7 +137,8 @@ class CoaDeleteButton {
             return;
         }
 
-        update_option( self::STAMP_OPTION, filemtime( $file ) . ':' . filesize( $file ), false );
+        clearstatcache( true, $file );
+        update_option( self::STAMP_OPTION, self::PATCH_VERSION . '|' . filemtime( $file ) . ':' . filesize( $file ), false );
         error_log( '[erp-budgeting] CoA delete patch: applied to ' . $file );
     }
 
