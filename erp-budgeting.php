@@ -1,7 +1,7 @@
 <?php
 /**
- * Plugin Name: WP ERP — Budgeting
- * Description: Budgeting & Budget Performance module for WP ERP (Accounting). Requires WP ERP to be installed and active.
+ * Plugin Name: WP ERP — Accounting Extension
+ * Description: Budgeting and CashBook extension for WP ERP Accounting module. Synchronises transactions from Sales, Purchases, and Expenses into a single CashBook view.
  * Version: 1.0.0
  * Author: Enle
  * Author URI: https://enle.org
