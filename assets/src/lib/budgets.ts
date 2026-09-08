@@ -1,3 +1,5 @@
+import { wpApiUrl } from './utils'
+
 // Helper to aggregate budget lines for a given fiscal year.
 // This centralizes the logic used in BudgetEditor and Reports.
 export interface BudgetLine { account_id: number; amount: number }
@@ -5,7 +7,7 @@ export interface BudgetLine { account_id: number; amount: number }
 export async function fetchBudgetLinesForYear(fiscalYear: string): Promise<BudgetLine[]> {
   try {
     const nonce = (window as unknown as { wpApiSettings?: { nonce?: string } }).wpApiSettings?.nonce ?? ''
-    const listResp = await fetch('/wp-json/erp/v1/budgets', { headers: { 'X-WP-Nonce': nonce } })
+    const listResp = await fetch(wpApiUrl('/erp/v1/budgets'), { headers: { 'X-WP-Nonce': nonce } })
     if (!listResp.ok) return []
     const budgets = await listResp.json()
     // Match budgets where the fiscalYear falls between start_date and end_date (inclusive),
@@ -34,7 +36,7 @@ export async function fetchBudgetLinesForYear(fiscalYear: string): Promise<Budge
     const allLines: BudgetLine[] = []
     for (const b of matched) {
       try {
-        const detailResp = await fetch(`/wp-json/erp/v1/budgets/${b.id}`, { headers: { 'X-WP-Nonce': nonce } })
+        const detailResp = await fetch(wpApiUrl(`/erp/v1/budgets/${b.id}`), { headers: { 'X-WP-Nonce': nonce } })
 
         if (!detailResp.ok) continue
         const detail = await detailResp.json()
@@ -87,7 +89,7 @@ export interface OpeningBalanceRecord {
 
 /**
  * Fetch budget lines for a fiscal year and join them with ledger records
- * using `/wp-json/erp/v1/accounting/v1/ledgers` so callers get ledger metadata
+ * using the current site's accounting REST endpoint so callers get ledger metadata
  * (name, code, chart_id) alongside the budget amount.
  */
 export async function fetchBudgetLinesWithLedgers(fiscalYear: string): Promise<BudgetLineWithLedger[]> {
@@ -95,8 +97,8 @@ export async function fetchBudgetLinesWithLedgers(fiscalYear: string): Promise<B
     const nonce = (window as unknown as { wpApiSettings?: { nonce?: string } }).wpApiSettings?.nonce ?? ''
     const [lines, ledgersResp, openingNamesResp] = await Promise.all([
       fetchBudgetLinesForYear(fiscalYear),
-      fetch('/wp-json/erp/v1/accounting/v1/ledgers', { headers: { 'X-WP-Nonce': nonce } }),
-      fetch('/wp-json/erp/v1/accounting/v1/opening-balances/names', { headers: { 'X-WP-Nonce': nonce } })
+      fetch(wpApiUrl('/erp/v1/accounting/v1/ledgers'), { headers: { 'X-WP-Nonce': nonce } }),
+      fetch(wpApiUrl('/erp/v1/accounting/v1/opening-balances/names'), { headers: { 'X-WP-Nonce': nonce } })
     ])
 
     const ledgers = ledgersResp.ok ? await ledgersResp.json() : []
@@ -121,7 +123,7 @@ export async function fetchBudgetLinesWithLedgers(fiscalYear: string): Promise<B
         const names = await openingNamesResp.json() as OpeningName[]
         const match = (names || []).find((n) => String(n.name) === String(fiscalYear))
         if (match && match.id) {
-          const obResp = await fetch(`/wp-json/erp/v1/accounting/v1/opening-balances/${match.id}`, { headers: { 'X-WP-Nonce': nonce } })
+          const obResp = await fetch(wpApiUrl(`/erp/v1/accounting/v1/opening-balances/${match.id}`), { headers: { 'X-WP-Nonce': nonce } })
           if (obResp.ok) openingBalances = await obResp.json()
         }
       } catch {

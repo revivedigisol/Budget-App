@@ -4,6 +4,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Button } from "../components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { wpApiUrl } from "../lib/utils";
 
 interface BudgetFormData {
   title: string;
@@ -23,7 +24,7 @@ const BudgetEditor = () => {
     currentPage === "erp-budgeting-new" || id === "new" || id === null;
 
   const { data: budget, error } = useSWR<BudgetFormData>(
-    !isNewBudget ? `/wp-json/erp/v1/budgets/${id}` : null
+    !isNewBudget ? wpApiUrl(`/erp/v1/budgets/${id}`) : null
   );
 
   // API budget shape (narrowly typed to avoid `any` usage)
@@ -53,7 +54,7 @@ const BudgetEditor = () => {
 
   // Fetch accounts
   const { data: accounts } = useSWR<Account[]>(
-    "/wp-json/erp/v1/accounting/v1/ledgers",
+    wpApiUrl("/erp/v1/accounting/v1/ledgers"),
     async (url: string) => {
       try {
         const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
@@ -71,7 +72,7 @@ const BudgetEditor = () => {
   // which years are already assigned to budgets. Used only when creating a new budget.
   interface OpeningName { id?: string | number; name?: string; start_date?: string; end_date?: string }
   const { data: openingNames } = useSWR<OpeningName[] | null>(
-    '/wp-json/erp/v1/accounting/v1/opening-balances/names',
+    wpApiUrl('/erp/v1/accounting/v1/opening-balances/names'),
     async (url: string) => {
       try {
         const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
@@ -85,7 +86,7 @@ const BudgetEditor = () => {
   )
 
   const { data: budgetsList } = useSWR<{ id: number | string; fiscal_year?: string | number; start_date?: string }[] | null>(
-    '/wp-json/erp/v1/budgets',
+    wpApiUrl('/erp/v1/budgets'),
     async (url: string) => {
       try {
         const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
@@ -189,7 +190,7 @@ const BudgetEditor = () => {
 
     setDeleting(true);
     try {
-      const response = await fetch(`/wp-json/erp/v1/budgets/${id}`, {
+      const response = await fetch(wpApiUrl(`/erp/v1/budgets/${id}`), {
         method: 'DELETE',
         headers: {
           'X-WP-Nonce': window.wpApiSettings?.nonce ?? '',
@@ -354,8 +355,8 @@ const BudgetEditor = () => {
     }
 
     const endpoint = isNewBudget
-      ? "/wp-json/erp/v1/budgets"
-      : `/wp-json/erp/v1/budgets/${id}`;
+      ? wpApiUrl("/erp/v1/budgets")
+      : wpApiUrl(`/erp/v1/budgets/${id}`);
 
     try {
       const response = await fetch(endpoint, {

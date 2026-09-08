@@ -4,10 +4,11 @@ import BudgetEditor from "./pages/BudgetEditor";
 import Reports from "./pages/Reports";
 import CashBook from "./pages/CashBook";
 import "./App.css";
+import { wpApiUrl } from "./lib/utils";
 
 // Configure SWR fetcher to use WordPress REST API with nonce
 const fetcher = (url: string) =>
-  fetch(url, {
+  fetch(wpApiUrl(url), {
     headers: {
       "X-WP-Nonce": (window as any).wpApiSettings?.nonce,
     },
