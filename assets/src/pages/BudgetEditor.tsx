@@ -312,12 +312,23 @@ const BudgetEditor = () => {
     if (isSubmitting) return;
     setIsSubmitting(true);
 
+    // Only submit amounts for accounts that are in the loaded (Income/Expense) picker.
+    // Editing an existing budget pre-loads every stored line into accounts_amounts,
+    // including accounts that are no longer selectable (e.g. an old Asset line) and
+    // therefore have no visible row to zero out — resubmitting them fails validation.
+    // If the accounts list hasn't loaded, don't filter (avoid wiping all lines).
+    const allowedAccountIds =
+      accounts && accounts.length ? new Set(accounts.map((a) => Number(a.id))) : null;
+
     // Convert accounts_amounts to lines array format expected by API
     const lines = Object.entries(formData.accounts_amounts || {}).map(([accountId, amount]) => ({
       account_id: parseInt(accountId, 10),
       amount: parseFloat(amount || '0'),
       period_type: 'annual', // Default to annual period type
-    })).filter(line => !isNaN(line.amount) && line.amount > 0); // Only include non-zero amounts
+    })).filter(line =>
+      !isNaN(line.amount) && line.amount > 0 && // Only include non-zero amounts
+      (!allowedAccountIds || allowedAccountIds.has(line.account_id)) // drop non-selectable accounts
+    );
 
     // Build payload. For new budgets, prefer sending `fiscal_year` when a fiscal period
     // was selected (this prevents duplicate year assignments). For edits, preserve

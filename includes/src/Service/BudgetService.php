@@ -22,12 +22,18 @@ class BudgetService
      * (chart_id = 4 for Income, 5 for Expense).
      * 
      * @param array $lines Budget lines to validate
+     * @param int[] $grandfatheredAccountIds Account IDs already present on the budget being
+     *              updated. These are skipped so historical lines created before this rule
+     *              existed (or before a ledger's chart type changed) don't permanently block
+     *              saves. Newly added invalid accounts are still rejected.
      * @throws \InvalidArgumentException If any line contains an invalid account type
      */
-    private function validateBudgetLines($lines) {
+    private function validateBudgetLines($lines, array $grandfatheredAccountIds = []) {
         if (empty($lines) || ! is_array($lines)) {
             return;
         }
+
+        $grandfatheredAccountIds = array_map('intval', $grandfatheredAccountIds);
 
         // Check if the WP ERP ledger function exists
         if (! function_exists('erp_acct_get_ledger')) {
@@ -41,6 +47,12 @@ class BudgetService
             }
 
             $account_id = (int) $line['account_id'];
+
+            // Skip lines that were already on this budget before the update.
+            if (in_array($account_id, $grandfatheredAccountIds, true)) {
+                continue;
+            }
+
             $ledger = erp_acct_get_ledger($account_id);
 
             if (! $ledger) {
@@ -189,9 +201,22 @@ class BudgetService
             return false;
         }
 
-        // Validate budget lines before processing
+        // Validate budget lines before processing. Lines already on this budget are
+        // grandfathered so pre-existing data (e.g. an account whose chart type changed,
+        // or lines created before Income/Expense enforcement) can still be saved.
         if (! empty($payload['lines']) && is_array($payload['lines'])) {
-            $this->validateBudgetLines($payload['lines']);
+            $existingAccountIds = [];
+            if (! empty($budget['lines']) && is_array($budget['lines'])) {
+                foreach ($budget['lines'] as $existingLine) {
+                    $eid = is_array($existingLine)
+                        ? ($existingLine['account_id'] ?? null)
+                        : ($existingLine->account_id ?? null);
+                    if ($eid !== null) {
+                        $existingAccountIds[] = (int) $eid;
+                    }
+                }
+            }
+            $this->validateBudgetLines($payload['lines'], $existingAccountIds);
         }
 
         // Update budget metadata if provided. Support `fiscal_year` by resolving start/end dates.
