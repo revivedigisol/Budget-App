@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import useSWR from 'swr'
 import { Input } from '../components/ui/input'
 import { Button } from '../components/ui/button'
+import { wpApiUrl } from '../lib/utils'
 
 interface Budget {
   id: number
@@ -26,7 +27,7 @@ const BudgetList = () => {
     return res.json()
   }
 
-  const { data: budgets, error } = useSWR<Budget[]>('/wp-json/erp/v1/budgets', fetcher)
+  const { data: budgets, error } = useSWR<Budget[]>(wpApiUrl('/erp/v1/budgets'), fetcher)
   const budgetsList = budgets ?? []
   const [searchTerm, setSearchTerm] = useState('')
   const [sortBy, setSortBy] = useState<'title' | 'fiscal' | 'status' | null>(null)

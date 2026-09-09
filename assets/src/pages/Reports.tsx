@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react'
 import useSWR from 'swr'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
+import { wpApiUrl } from '../lib/utils'
 
 interface ReportFilters {
   fiscal_year: string
@@ -100,7 +101,7 @@ const Reports = () => {
         params.department_id = String(filters.department_id);
       }
 
-      const url = `/wp-json/erp/v1/budgets/reports?${new URLSearchParams(params)}`;
+      const url = wpApiUrl(`/erp/v1/budgets/reports?${new URLSearchParams(params)}`);
       console.log('📊 Reports API URL:', url, 'Params:', params);
       return url;
     })(),
@@ -125,7 +126,7 @@ const Reports = () => {
   // Fiscal years that actually exist in WP ERP's accounting data. Used to tell the
   // user when they've asked for a year with no data, instead of a hard-coded cutoff.
   const { data: availableYears } = useSWR<number[]>(
-    '/wp-json/erp/v1/accounting/v1/opening-balances/names',
+    wpApiUrl('/erp/v1/accounting/v1/opening-balances/names'),
     async (url: string) => {
       const r = await fetch(url, { headers: { 'X-WP-Nonce': window.wpApiSettings?.nonce ?? '' } })
       if (!r.ok) return []

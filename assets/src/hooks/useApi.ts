@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { wpApiUrl } from '../lib/utils'
 
 const useApi = () => {
   const getHeaders = useCallback(() => {
@@ -9,7 +10,7 @@ const useApi = () => {
   }, [])
 
   const get = useCallback(async (endpoint: string) => {
-    const response = await fetch(`/wp-json/erp/v1${endpoint}`, {
+    const response = await fetch(wpApiUrl(`/erp/v1${endpoint}`), {
       headers: getHeaders()
     })
 
@@ -21,7 +22,7 @@ const useApi = () => {
   }, [getHeaders])
 
   const post = useCallback(async (endpoint: string, data: any) => {
-    const response = await fetch(`/wp-json/erp/v1${endpoint}`, {
+    const response = await fetch(wpApiUrl(`/erp/v1${endpoint}`), {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(data)
@@ -35,7 +36,7 @@ const useApi = () => {
   }, [getHeaders])
 
   const put = useCallback(async (endpoint: string, data: any) => {
-    const response = await fetch(`/wp-json/erp/v1${endpoint}`, {
+    const response = await fetch(wpApiUrl(`/erp/v1${endpoint}`), {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(data)
@@ -49,7 +50,7 @@ const useApi = () => {
   }, [getHeaders])
 
   const del = useCallback(async (endpoint: string) => {
-    const response = await fetch(`/wp-json/erp/v1${endpoint}`, {
+    const response = await fetch(wpApiUrl(`/erp/v1${endpoint}`), {
       method: 'DELETE',
       headers: getHeaders()
     })
