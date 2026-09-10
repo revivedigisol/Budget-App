@@ -531,7 +531,14 @@ const BudgetEditor = () => {
           <div className="flex items-center justify-between">
             <Label>Chart of Accounts — Budget Amounts</Label>
             <div className="flex items-center gap-3">
-              <Button type="button" variant="outline" onClick={downloadSampleCSV} disabled={!accounts?.length}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={downloadSampleCSV}
+                disabled={!accounts?.length}
+                className="border-black! bg-black! text-white! shadow-sm hover:bg-gray-800! hover:text-white! focus-visible:ring-gray-500!"
+              >
+                <span aria-hidden="true" className="text-base leading-none">↓</span>
                 Download Sample CSV
               </Button>
               <div className="text-sm font-semibold text-gray-800">
