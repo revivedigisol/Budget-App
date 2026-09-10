@@ -238,6 +238,29 @@ const BudgetEditor = () => {
   const totalExpense = useMemo(() => chartTotals['5'] ?? 0, [chartTotals])
   const budgetedSurplus = totalIncome - totalExpense
 
+  const downloadSampleCSV = () => {
+    const rows = Object.values(accountsByChart).flatMap((accountList) =>
+      accountList.map((account) => [
+        account.code,
+        account.name,
+        formData.accounts_amounts?.[String(account.id)] ?? '',
+      ])
+    )
+    const csv = [
+      ['account_code', 'account_name', 'budget_amount'],
+      ...rows,
+    ]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'budget-sample.csv'
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => {
     if (!budget) return;
     const b = budget as unknown as ApiBudget;
@@ -507,11 +530,16 @@ const BudgetEditor = () => {
         <div className="mt-6">
           <div className="flex items-center justify-between">
             <Label>Chart of Accounts — Budget Amounts</Label>
-            <div className="text-sm font-semibold text-gray-800">
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="outline" onClick={downloadSampleCSV} disabled={!accounts?.length}>
+                Download Sample CSV
+              </Button>
+              <div className="text-sm font-semibold text-gray-800">
               Budgeted {budgetedSurplus >= 0 ? "Surplus" : "Deficit"}:
               <span className={`ml-2 ${budgetedSurplus >= 0 ? "text-green-700" : "text-red-700"}`}>
                 {formatCurrency(Math.abs(budgetedSurplus))}
               </span>
+            </div>
             </div>
           </div>
           <div className="mt-2 border rounded-lg shadow-sm">
