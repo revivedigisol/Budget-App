@@ -240,10 +240,12 @@ const BudgetEditor = () => {
 
   const importFileInput = useRef<HTMLInputElement>(null)
 
+  const plainAccountCode = (code: string) => code.replace(/^\d{2}-/, '')
+
   const downloadSampleCSV = () => {
     const rows = Object.values(accountsByChart).flatMap((accountList) =>
       accountList.map((account) => [
-        account.code,
+        plainAccountCode(String(account.code)),
         account.name,
         formData.accounts_amounts?.[String(account.id)] ?? '',
       ])
@@ -300,7 +302,10 @@ const BudgetEditor = () => {
       }
 
       const accountsByCode = new Map(
-        (accounts ?? []).map((account) => [String(account.code).trim(), account])
+        (accounts ?? []).flatMap((account) => [
+          [plainAccountCode(String(account.code).trim()), account] as const,
+          [String(account.code).trim(), account] as const,
+        ])
       )
       const importedAmounts = { ...(formData.accounts_amounts || {}) }
       let importedCount = 0
