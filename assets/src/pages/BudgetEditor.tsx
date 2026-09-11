@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import useSWR from "swr";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -238,6 +238,8 @@ const BudgetEditor = () => {
   const totalExpense = useMemo(() => chartTotals['5'] ?? 0, [chartTotals])
   const budgetedSurplus = totalIncome - totalExpense
 
+  const importFileInput = useRef<HTMLInputElement>(null)
+
   const downloadSampleCSV = () => {
     const rows = Object.values(accountsByChart).flatMap((accountList) =>
       accountList.map((account) => [
@@ -259,6 +261,73 @@ const BudgetEditor = () => {
     link.download = 'budget-sample.csv'
     link.click()
     URL.revokeObjectURL(url)
+  }
+
+  const importCSV = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const text = String(reader.result ?? '').replace(/^\uFEFF/, '')
+      const rows = text.split(/\r?\n/).filter((row) => row.trim() !== '')
+      if (rows.length < 2) {
+        alert('The CSV file does not contain any budget amounts.')
+        return
+      }
+
+      const parseRow = (row: string) => {
+        const values: string[] = []
+        const pattern = /("(?:[^"]|"")*"|[^,]*)(?:,|$)/g
+        let match: RegExpExecArray | null
+        while ((match = pattern.exec(row)) !== null) {
+          const value = match[1].trim()
+          values.push(value.startsWith('"') && value.endsWith('"')
+            ? value.slice(1, -1).replace(/""/g, '"')
+            : value)
+          if (match[0].endsWith('') && pattern.lastIndex >= row.length) break
+        }
+        return values
+      }
+
+      const headers = parseRow(rows[0]).map((header) => header.toLowerCase())
+      const codeIndex = headers.indexOf('account_code')
+      const amountIndex = headers.indexOf('budget_amount')
+      if (codeIndex === -1 || amountIndex === -1) {
+        alert('CSV must contain account_code and budget_amount columns.')
+        return
+      }
+
+      const accountsByCode = new Map(
+        (accounts ?? []).map((account) => [String(account.code).trim(), account])
+      )
+      const importedAmounts = { ...(formData.accounts_amounts || {}) }
+      let importedCount = 0
+      let invalidCount = 0
+
+      rows.slice(1).forEach((row) => {
+        const values = parseRow(row)
+        const account = accountsByCode.get(values[codeIndex]?.trim())
+        const amount = values[amountIndex]?.trim() ?? ''
+        if (!account || amount === '') return
+        const numericAmount = Number(amount)
+        if (!Number.isFinite(numericAmount) || numericAmount < 0) {
+          invalidCount += 1
+          return
+        }
+        importedAmounts[String(account.id)] = amount
+        importedCount += 1
+      })
+
+      if (importedCount === 0) {
+        alert('No matching budget amounts were found in the CSV file.')
+        return
+      }
+      setFormData({ ...formData, accounts_amounts: importedAmounts })
+      alert(`Imported ${importedCount} budget amount${importedCount === 1 ? '' : 's'}.${invalidCount ? ` Skipped ${invalidCount} invalid value${invalidCount === 1 ? '' : 's'}.` : ''}`)
+    }
+    reader.readAsText(file)
   }
 
   useEffect(() => {
@@ -531,6 +600,23 @@ const BudgetEditor = () => {
           <div className="flex items-center justify-between">
             <Label>Chart of Accounts — Budget Amounts</Label>
             <div className="flex items-center gap-3">
+              <input
+                ref={importFileInput}
+                type="file"
+                accept=".csv,text/csv"
+                onChange={importCSV}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => importFileInput.current?.click()}
+                disabled={!accounts?.length}
+                className="border-black! bg-black! text-white! shadow-sm hover:bg-gray-800! hover:text-white! focus-visible:ring-gray-500!"
+              >
+                <span aria-hidden="true" className="text-base leading-none">↑</span>
+                Import CSV
+              </Button>
               <Button
                 type="button"
                 variant="outline"
